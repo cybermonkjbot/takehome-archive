@@ -55,7 +55,7 @@ run_k8s() {
   print_banner
   log_info "Starting Kubernetes cluster deployment mode..."
 
-  for cmd in kubectl minikube helm bun; do
+  for cmd in kubectl minikube helm bun openssl python3; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
       log_warn "Missing required CLI tool: $cmd"
       exit 1
@@ -96,6 +96,68 @@ run_k8s() {
     exit 1
   else
     log_ok "Versioned local database credentials are already installed."
+  fi
+
+  # Raw-log access uses one high-entropy, shared bearer secret for this local
+  # profile. Keep its source file workstation-only and never print its value.
+  log_access_token_file="k8s/overlays/local/log-access-token"
+  if kubectl -n demo get secret api-log-access-v1 >/dev/null 2>&1; then
+    if [ ! -f "$log_access_token_file" ]; then
+      log_warn "The immutable log-access Secret exists but its local token file is missing. Restore the file or rotate to a new Secret version."
+      exit 1
+    fi
+    if ! grep -Eq '^[0-9a-f]{64}$' "$log_access_token_file"; then
+      log_warn "The local log-access token file is invalid; it must contain one 256-bit hexadecimal token."
+      exit 1
+    fi
+    secret_immutable="$(kubectl -n demo get secret api-log-access-v1 -o jsonpath='{.immutable}')"
+    if [ "$secret_immutable" != "true" ]; then
+      log_warn "The log-access Secret is not immutable. Replace it through a new versioned Secret before deployment."
+      exit 1
+    fi
+    if ! python3 - "$log_access_token_file" <<'PY'
+import base64
+import hmac
+import subprocess
+import sys
+from pathlib import Path
+
+result = subprocess.run(
+    ["kubectl", "-n", "demo", "get", "secret", "api-log-access-v1", "-o", "jsonpath={.data.token}"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    check=False,
+)
+try:
+    expected = base64.b64encode(Path(sys.argv[1]).read_bytes()).strip()
+except OSError:
+    raise SystemExit(1)
+raise SystemExit(0 if result.returncode == 0 and hmac.compare_digest(result.stdout, expected) else 1)
+PY
+    then
+      log_warn "The local log-access token file does not match the installed Secret. Restore it or rotate to a new Secret version."
+      exit 1
+    fi
+    chmod 600 "$log_access_token_file"
+    log_ok "Immutable log-access Secret is installed."
+  else
+    if [ ! -f "$log_access_token_file" ]; then
+      token_temp_file="$(mktemp "${log_access_token_file}.XXXXXX")"
+      openssl rand -hex 32 > "$token_temp_file"
+      chmod 600 "$token_temp_file"
+      mv "$token_temp_file" "$log_access_token_file"
+    fi
+    if ! grep -Eq '^[0-9a-f]{64}$' "$log_access_token_file"; then
+      log_warn "The local log-access token file is invalid; it must contain one 256-bit hexadecimal token."
+      exit 1
+    fi
+    chmod 600 "$log_access_token_file"
+    log_info "Creating immutable versioned log-access Secret..."
+    kubectl -n demo create secret generic api-log-access-v1 \
+      --from-file="token=$log_access_token_file" \
+      --dry-run=client -o json \
+      | python3 -c 'import json, sys; secret = json.load(sys.stdin); secret["immutable"] = True; json.dump(secret, sys.stdout)' \
+      | kubectl apply -f - >/dev/null
   fi
 
   log_info "Deploying CloudNativePG operator..."

@@ -5,11 +5,18 @@ const lastRun = document.querySelector('#last-run');
 const sampleMeta = document.querySelector('.sample-meta');
 const message = document.querySelector('#sample-message');
 const grid = document.querySelector('#snapshot-grid');
+const overviewStatus = document.querySelector('#overview-status');
+const collectorSampleEmpty = document.querySelector('#collector-sample-empty');
 const logsDialog = document.querySelector('#logs-dialog');
 const logsTitle = document.querySelector('#logs-title');
 const logsMeta = document.querySelector('#logs-meta');
 const logsStatus = document.querySelector('#logs-status');
 const logsOutput = document.querySelector('#logs-output');
+const logsAuth = document.querySelector('#logs-auth');
+const logsTokenInput = document.querySelector('#logs-token');
+const logsTokenFile = document.querySelector('#logs-token-file');
+const logsAuthError = document.querySelector('#logs-auth-error');
+const logsLock = document.querySelector('#logs-lock');
 
 const integer = new Intl.NumberFormat();
 const timestamp = new Intl.DateTimeFormat(undefined, {
@@ -20,6 +27,10 @@ const timestamp = new Intl.DateTimeFormat(undefined, {
 let activeLogsRequest;
 let snapshotRefreshTimer;
 let snapshotRefreshInFlight = false;
+let overviewRefreshTimer;
+let overviewRefreshInFlight = false;
+let logAccessToken = '';
+let selectedLogTarget;
 
 const stateIconPaths = {
   loading: ['M20 12a8 8 0 1 1-2.34-5.66'],
@@ -119,8 +130,67 @@ function displaySnapshot(snapshot) {
   }));
   grid.hidden = false;
   sampleMeta.hidden = false;
+  collectorSampleEmpty.hidden = true;
   message.hidden = true;
   status.textContent = 'Updated';
+}
+
+function renderOverviewUnavailable() {
+  overviewStatus.textContent = 'Unavailable · no current observation';
+  document.querySelectorAll('[data-overview-id]').forEach((node) => {
+    const state = node.querySelector('[data-state]');
+    const count = node.querySelector('[data-count]');
+    state.textContent = 'Unknown';
+    state.className = 'node-state node-state-unknown';
+    count.textContent = 'No current observation';
+  });
+}
+
+function displayOverview(overview) {
+  const components = Array.isArray(overview.components) ? overview.components : [];
+  const byId = new Map(components.map((component) => [component.id, component]));
+  document.querySelectorAll('[data-overview-id]').forEach((node) => {
+    const component = byId.get(node.dataset.overviewId);
+    const state = node.querySelector('[data-state]');
+    const count = node.querySelector('[data-count]');
+    if (!component || !['ready', 'degraded', 'missing'].includes(component.state)) {
+      state.textContent = 'Unknown';
+      state.className = 'node-state node-state-unknown';
+      count.textContent = 'No current observation';
+      return;
+    }
+
+    const stateLabels = { ready: 'Ready', degraded: 'Degraded', missing: 'Not found' };
+    state.textContent = stateLabels[component.state];
+    state.className = `node-state node-state-${component.state}`;
+    count.textContent = `${integer.format(component.ready_pods)} / ${integer.format(component.observed_pods)} pods ready`;
+  });
+
+  const checkedAt = new Date(overview.checked_at);
+  overviewStatus.textContent = Number.isNaN(checkedAt.valueOf())
+    ? 'Live · checked just now'
+    : `Live · checked ${timestamp.format(checkedAt)}`;
+}
+
+async function refreshOverview() {
+  if (overviewRefreshInFlight) return;
+  overviewRefreshInFlight = true;
+  try {
+    const response = await fetch('/api/v1/overview', {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+      credentials: 'same-origin',
+      redirect: 'error',
+    });
+    if (!response.ok) throw new Error('overview unavailable');
+    displayOverview(await response.json());
+  } catch {
+    renderOverviewUnavailable();
+  } finally {
+    overviewRefreshInFlight = false;
+    window.clearTimeout(overviewRefreshTimer);
+    overviewRefreshTimer = window.setTimeout(refreshOverview, 30_000);
+  }
 }
 
 async function refreshSnapshot() {
@@ -152,6 +222,7 @@ async function refreshSnapshot() {
       lastRun.dateTime = '';
       grid.hidden = true;
       sampleMeta.hidden = true;
+      collectorSampleEmpty.hidden = false;
       message.hidden = false;
       setStateMessage(message, {
         type: 'empty',
@@ -213,25 +284,39 @@ function appendPodLogs(pod) {
 }
 
 async function openLogs(component, label) {
+  selectedLogTarget = { component, label };
   activeLogsRequest?.abort();
-  activeLogsRequest = new AbortController();
   logsTitle.textContent = `${label} logs`;
   logsMeta.textContent = 'Last 100 lines';
+  logsOutput.replaceChildren();
+  logsOutput.hidden = true;
+  logsStatus.hidden = true;
+  if (!logsDialog.open) logsDialog.showModal();
+
+  if (!logAccessToken) {
+    showLogAccessForm();
+    return;
+  }
+
+  activeLogsRequest = new AbortController();
+  logsAuth.hidden = true;
+  logsLock.hidden = false;
   logsStatus.hidden = false;
   setStateMessage(logsStatus, {
     type: 'loading',
     title: 'Loading logs',
     description: 'Fetching the latest 100 lines.',
   });
-  logsOutput.replaceChildren();
-  logsOutput.hidden = true;
-  if (!logsDialog.open) logsDialog.showModal();
 
   try {
     const response = await fetch(`/api/v1/logs/${encodeURIComponent(component)}?tail=100`, {
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${logAccessToken}`,
+      },
       cache: 'no-store',
       credentials: 'same-origin',
+      redirect: 'error',
       signal: activeLogsRequest.signal,
     });
     if (response.status === 503) {
@@ -243,19 +328,16 @@ async function openLogs(component, label) {
       }
       setStateMessage(logsStatus, {
         type: 'error',
-        title: errorCode === 'log_authentication_not_configured' ? 'Log access is disabled' : 'Logs unavailable',
-        description: errorCode === 'log_authentication_not_configured'
-          ? 'Raw logs stay disabled until a user identity check is implemented and verified.'
+        title: errorCode === 'log_authentication_unavailable' ? 'Log access is not configured' : 'Logs unavailable',
+        description: errorCode === 'log_authentication_unavailable'
+          ? 'The API does not have its log access Secret. Reinstall the local stack to restore it.'
           : 'The log service is unavailable or cannot reach the Kubernetes API.',
       });
       return;
     }
     if (response.status === 401) {
-      setStateMessage(logsStatus, {
-        type: 'error',
-        title: 'Access required',
-        description: 'Your current session cannot read component logs.',
-      });
+      logAccessToken = '';
+      showLogAccessForm('The shared secret was rejected. Check it and try again.');
       return;
     }
     if (!response.ok) throw new Error('logs unavailable');
@@ -298,15 +380,88 @@ async function openLogs(component, label) {
   }
 }
 
+function showLogAccessForm(errorMessage = '') {
+  activeLogsRequest?.abort();
+  activeLogsRequest = undefined;
+  logsAuth.hidden = false;
+  logsLock.hidden = true;
+  logsStatus.hidden = true;
+  logsOutput.replaceChildren();
+  logsOutput.hidden = true;
+  logsTokenInput.value = '';
+  logsTokenFile.value = '';
+  logsAuthError.textContent = errorMessage;
+  logsAuthError.hidden = !errorMessage;
+  window.requestAnimationFrame(() => logsTokenInput.focus());
+}
+
+function reportAuthInputError(messageText) {
+  logsAuthError.textContent = messageText;
+  logsAuthError.hidden = false;
+}
+
+async function acceptLogAccessToken(candidate) {
+  const token = candidate.trim();
+  if (!/^[0-9a-f]{64}$/.test(token)) {
+    reportAuthInputError('Enter the 64-character token from the configured secret.');
+    return;
+  }
+  logAccessToken = token;
+  logsTokenInput.value = '';
+  logsTokenFile.value = '';
+  logsAuthError.hidden = true;
+  if (selectedLogTarget) {
+    await openLogs(selectedLogTarget.component, selectedLogTarget.label);
+  }
+}
+
 document.querySelectorAll('[data-component]').forEach((button) => {
   button.addEventListener('click', () => {
-    const label = button.closest('.component-row').querySelector('h2').textContent;
+    const label = button.closest('.topology-node').querySelector('h2').textContent;
     openLogs(button.dataset.component, label);
   });
 });
 
+logsAuth?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const candidate = logsTokenInput.value;
+  logsTokenInput.value = '';
+  await acceptLogAccessToken(candidate);
+});
+
+logsTokenFile?.addEventListener('change', async () => {
+  const file = logsTokenFile.files?.[0];
+  if (!file) return;
+  try {
+    const candidate = await file.text();
+    await acceptLogAccessToken(candidate);
+  } catch {
+    reportAuthInputError('The selected token file could not be read.');
+  } finally {
+    logsTokenFile.value = '';
+  }
+});
+
+logsLock?.addEventListener('click', () => {
+  logAccessToken = '';
+  showLogAccessForm();
+});
+
 document.querySelector('#logs-close')?.addEventListener('click', () => logsDialog.close());
-logsDialog?.addEventListener('close', () => activeLogsRequest?.abort());
+logsDialog?.addEventListener('close', () => {
+  activeLogsRequest?.abort();
+  activeLogsRequest = undefined;
+  logsOutput.replaceChildren();
+  logsOutput.hidden = true;
+});
+
+window.addEventListener('pagehide', () => {
+  activeLogsRequest?.abort();
+  logAccessToken = '';
+  logsTokenInput.value = '';
+  logsOutput.replaceChildren();
+});
 
 // I completed the assignment.
 refreshSnapshot();
+refreshOverview();

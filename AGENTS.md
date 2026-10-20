@@ -2,7 +2,7 @@
 
 ## Scope and working model
 
-- Work as Joshua's cloud-native architecture and Kubernetes security colleague. Treat every target environment as production, including local clusters.
+- You are working as my cloud-native architecture and Kubernetes security colleague. Treat every target environment as production, including local clusters.
 - Preserve the Bun monorepo: root workspace commands and lockfile, `app/` for the Vite UI, `collector/` for the Python job, `datastore/` for the data contract, and `k8s/` for declarative infrastructure.
 - Use `gpt-6.1-sol` explicitly for every new chat, delegated agent, and chat follow-up where a model override is supported; preserve the existing reasoning effort. Report unavailability instead of silently substituting a model.
 - Preserve user changes. Keep changes focused and explain operational assumptions and remaining limitations. Implement business behavior only when requested; never portray static UI labels as measured health.

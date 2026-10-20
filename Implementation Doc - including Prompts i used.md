@@ -229,9 +229,15 @@ Minikube to run the node cluster locally and test. and i used Calico CNI
 i used CloudNative PG to manage the high availability postgresql cluster.
 and for secrets i ensured model used secretstore and externalsecret ensuring zero plaintext secrets exist.
 
-
-
-
+Other prompts used
+As the project moved beyond the initial scaffold, I used more focused prompts to work through the design decisions and review each part of the system.
+1. “Review the repository as it is now. Summarize the architecture, what is implemented, and what is still unresolved. Don’t edit any files yet, and preserve the changes I have already made.”
+2. “Help me define the local demo architecture and the production target separately. Call out the trade-offs around PostgreSQL, collection frequency, log access, secrets, and what a single-node local cluster can actually demonstrate.”
+3. “Review the collector and database design. Make sure collection is safe to retry, snapshots have a clear identity and timestamp, and database failures don’t create duplicate or misleading records.”
+4. “Review the API contract for the snapshot, health, and log endpoints. Keep health checks local to the API process, and make sure logs aren’t exposed to the browser until an authenticated identity is configured.”
+5. “Review the dashboard against the API behavior. Make it clear when data is measured, missing, stale, or unavailable, and don’t show static labels as if they represent live system health.”
+6. “Review the Kubernetes manifests against the project security requirements. Check default-deny network policies, least-privilege RBAC, service-account tokens, non-root execution, read-only filesystems, and bounded writable mounts.”
+7. “Review workload reliability and shutdown behavior. Check probes, resource requests and limits, termination grace periods, and what happens during pod or node failure. Treat the local cluster as one failure domain.”
 
 
 

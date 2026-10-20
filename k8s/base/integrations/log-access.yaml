@@ -1,0 +1,24 @@
+# The selected External Secrets provider supplies a random 256-bit token.
+# The target Secret is immutable and versioned; rotation uses a new name.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: api-log-access-v1
+  namespace: demo
+spec:
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: api-log-access-v1
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+    template:
+      type: Opaque
+  data:
+    - secretKey: token
+      remoteRef:
+        key: local-stack/log-access/bearer/v1
+        property: token

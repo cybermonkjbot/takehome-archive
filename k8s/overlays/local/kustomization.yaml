@@ -10,10 +10,10 @@ resources:
 images:
   - name: registry.invalid/local-stack/web
     newName: web-app
-    newTag: 0.1.0
+    newTag: 0.1.1
   - name: registry.invalid/local-stack/api
     newName: api
-    newTag: 0.1.0
+    newTag: 0.1.1
   - name: registry.invalid/local-stack/collector
     newName: collector
     newTag: 0.1.0
@@ -79,6 +79,18 @@ patches:
       kind: ExternalSecret
       metadata:
         name: collector-datastore-credentials-v1
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: api-log-access-v1
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: api-log-access-v1
         namespace: demo
   # The local profile has one laptop failure domain and insufficient disk for
   # a replicated 60 GiB PostgreSQL footprint; it runs one durable 2 GiB instance.

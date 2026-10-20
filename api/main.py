@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+import hmac
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import ssl
 import sys
 from typing import Any, AsyncIterator, Literal
@@ -30,7 +33,7 @@ except ModuleNotFoundError:
         os.execv(str(venv_python), [str(venv_python)] + sys.argv)
     raise
 
-from fastapi import FastAPI, Path as FastPath, Query, status
+from fastapi import FastAPI, Path as FastPath, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -66,6 +69,14 @@ COMPONENTS: dict[ComponentName, dict[str, str]] = {
     },
 }
 
+STACK_COMPONENTS: tuple[tuple[str, str, str], ...] = (
+    ("datastore", "PostgreSQL", "cnpg.io/cluster=postgres-cluster"),
+    ("snapshot-api", "Snapshot API", "app.kubernetes.io/name=snapshot-api"),
+    ("web-app", "Web dashboard", "app.kubernetes.io/name=web-app"),
+)
+LOG_TOKEN_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+NO_STORE_HEADERS = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+
 
 class LogsUnavailable(Exception):
     """Raised when a Kubernetes API request cannot be completed securely."""
@@ -96,6 +107,19 @@ class ComponentLogsResponse(BaseModel):
     pods: list[PodLogEntry] = Field(default_factory=list, description="Log entries per pod")
     truncated: bool = Field(default=False, description="Whether logs were truncated by byte/pod limits")
     has_error: bool = Field(default=False, description="Whether any pod log encountered an error")
+
+
+class StackComponentStatus(BaseModel):
+    id: str
+    name: str
+    state: Literal["ready", "degraded", "missing"]
+    ready_pods: int
+    observed_pods: int
+
+
+class StackOverviewResponse(BaseModel):
+    checked_at: str
+    components: list[StackComponentStatus]
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +247,87 @@ class KubernetesClient:
             has_error=has_error,
         )
 
+    def get_stack_overview(self) -> StackOverviewResponse:
+        """Return live ready/observed pod counts for fixed stack selectors."""
+        components: list[StackComponentStatus] = []
+        for component_id, name, selector in STACK_COMPONENTS:
+            query = urlencode({"labelSelector": selector, "limit": "100"})
+            path = f"/api/v1/namespaces/{NAMESPACE}/pods?{query}"
+            try:
+                payload = json.loads(self.request(path, MAX_POD_LIST_BYTES))
+            except (LogsUnavailable, ValueError, TypeError):
+                raise LogsUnavailable("Unable to inspect current component status.") from None
+
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                raise LogsUnavailable("Invalid Kubernetes pod status response.")
+
+            ready_pods = 0
+            observed_pods = 0
+            for pod in items:
+                if not isinstance(pod, dict):
+                    continue
+                metadata = pod.get("metadata")
+                pod_status = pod.get("status")
+                if not isinstance(metadata, dict) or not isinstance(pod_status, dict):
+                    continue
+                if metadata.get("deletionTimestamp"):
+                    continue
+                observed_pods += 1
+                conditions = pod_status.get("conditions", [])
+                is_ready = (
+                    pod_status.get("phase") == "Running"
+                    and isinstance(conditions, list)
+                    and any(
+                        isinstance(condition, dict)
+                        and condition.get("type") == "Ready"
+                        and condition.get("status") == "True"
+                        for condition in conditions
+                    )
+                )
+                ready_pods += int(is_ready)
+
+            state = (
+                "missing" if observed_pods == 0
+                else "ready" if ready_pods == observed_pods
+                else "degraded"
+            )
+            components.append(StackComponentStatus(
+                id=component_id,
+                name=name,
+                state=state,
+                ready_pods=ready_pods,
+                observed_pods=observed_pods,
+            ))
+
+        return StackOverviewResponse(
+            checked_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            components=components,
+        )
+
+
+def _configured_log_access_token() -> str:
+    """Read and validate the high-entropy shared token mounted as a Secret file."""
+    token_path = os.environ.get("LOG_API_TOKEN_FILE")
+    if not token_path:
+        raise LogsUnavailable("Log access is not configured.")
+    try:
+        token = Path(token_path).read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        raise LogsUnavailable("Log access is not configured.") from None
+    if not LOG_TOKEN_PATTERN.fullmatch(token):
+        raise LogsUnavailable("Log access configuration is invalid.")
+    return token
+
+
+def _has_log_access(authorization: str | None, expected_token: str) -> bool:
+    if not authorization or len(authorization) > 128:
+        return False
+    scheme, separator, presented = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not separator or not LOG_TOKEN_PATTERN.fullmatch(presented):
+        return False
+    return hmac.compare_digest(expected_token, presented)
+
 
 # ---------------------------------------------------------------------------
 # FastAPI Application & Lifespan
@@ -287,26 +392,62 @@ async def get_snapshot() -> Any:
     return SnapshotResponse(snapshot=snapshot)
 
 
+@app.get("/api/v1/overview", response_model=StackOverviewResponse, summary="Live stack overview")
+async def get_stack_overview() -> Any:
+    """Report observed pod readiness for the dashboard's fixed components."""
+    try:
+        client = KubernetesClient()
+        overview = await asyncio.to_thread(client.get_stack_overview)
+    except LogsUnavailable:
+        logger.warning("Unable to read current stack status from the Kubernetes API.")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "overview_unavailable"},
+            headers=NO_STORE_HEADERS,
+        )
+    return JSONResponse(content=overview.model_dump(), headers=NO_STORE_HEADERS)
+
+
 @app.get("/api/v1/logs/{component}", response_model=ComponentLogsResponse, summary="Component pod logs")
 async def get_component_logs(
+    request: Request,
     component: ComponentName = FastPath(..., description="Target component: web-app, collector, or datastore"),
     tail: int = Query(default=100, ge=1, le=MAX_TAIL_LINES, description="Max lines to retrieve from log tail"),
 ) -> Any:
     """Streams tail logs for all pods backing the specified component in the demo namespace."""
     try:
+        expected_token = _configured_log_access_token()
+    except LogsUnavailable:
+        logger.error("Log access is unavailable because its credential is not configured.")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "log_authentication_unavailable"},
+            headers=NO_STORE_HEADERS,
+        )
+    if not _has_log_access(request.headers.get("authorization"), expected_token):
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "invalid_log_access_secret"},
+            headers={**NO_STORE_HEADERS, "WWW-Authenticate": 'Bearer realm="component-logs"'},
+        )
+
+    try:
         client = KubernetesClient()
-        return await asyncio.to_thread(client.get_component_logs, component, tail)
+        result = await asyncio.to_thread(client.get_component_logs, component, tail)
+        return JSONResponse(content=result.model_dump(), headers=NO_STORE_HEADERS)
     except LogsUnavailable as exc:
         logger.warning("Log request unavailable for component %s: %s", component, exc)
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"error": "logs_unavailable", "detail": "logs_unavailable"},
+            headers=NO_STORE_HEADERS,
         )
     except Exception as exc:
         logger.error("Unexpected error retrieving logs for component %s: %s", component, exc)
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"error": "logs_unavailable", "detail": "logs_unavailable"},
+            headers=NO_STORE_HEADERS,
         )
 
 
