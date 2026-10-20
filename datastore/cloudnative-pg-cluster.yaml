@@ -7,11 +7,11 @@ metadata:
     app.kubernetes.io/name: postgres-cluster
     app.kubernetes.io/part-of: local-stack
 spec:
-  # Multi-instance HA topology: 3 replicas across 3 independent availability zones
+  # Multi-instance HA topology. Verify operator compatibility and three real zones first.
   instances: 3
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15-minimal-trixie@sha256:f76ba02680a07bdafaa00c81827351b15e671ac11e0e6a0b72f8ee5835cc82c6
 
-  # High availability replication settings: synchronous standby for zero data loss (RPO=0)
+  # Require one synchronous standby for acknowledged writes; validate failover behavior.
   minSyncReplicas: 1
   maxSyncReplicas: 1
 
@@ -25,6 +25,7 @@ spec:
   affinity:
     topologySpreadConstraints:
       - maxSkew: 1
+        minDomains: 3
         topologyKey: topology.kubernetes.io/zone
         whenUnsatisfiable: DoNotSchedule
         labelSelector:
@@ -54,10 +55,30 @@ spec:
       secret:
         name: datastore-credentials-v1
 
+  # Secrets must contain usernames matching the managed role names and
+  # versioned passwords. Grants remain in the approved schema migration.
+  managed:
+    roles:
+      - name: snapshot_api
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: api-datastore-credentials-v1
+      - name: snapshot_collector
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: collector-datastore-credentials-v1
+
   # Automated health and monitoring integration
   monitoring:
     enablePodMonitor: false
 
-  # Backup retention contract (object store credentials supplied via external secret provider)
-  backup:
-    retentionPolicy: "30d"
+  # Backup policy is intentionally absent until the operator/plugin version,
+  # object-store destination, credentials, schedule, and restore procedure are selected.

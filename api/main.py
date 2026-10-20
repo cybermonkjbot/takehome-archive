@@ -8,8 +8,14 @@ import signal
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from types import FrameType
 from urllib.parse import urlsplit
+
+# Ensure monorepo root is on sys.path for local execution
+repo_root = str(Path(__file__).resolve().parent.parent)
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
 
 from datastore.postgres import check_schema, latest_snapshot
 
@@ -104,7 +110,8 @@ shutdown_event = threading.Event()
 
 
 def main() -> None:
-    host = os.environ.get("API_HOST", "0.0.0.0")
+    # Binding to 0.0.0.0 is required inside the container network namespace
+    host = os.environ.get("API_HOST", "0.0.0.0")  # nosec B104
     if not host:
         print("API_HOST must not be empty.", file=sys.stderr)
         raise SystemExit(2)

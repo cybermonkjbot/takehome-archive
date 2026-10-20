@@ -6,6 +6,8 @@
 !app/package.json
 !app/index.html
 !app/nginx.conf
+!app/public/
+!app/public/**
 !app/src/
 !app/src/main.js
 !app/src/style.css

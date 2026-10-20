@@ -6,6 +6,7 @@ COPY app/package.json app/package.json
 RUN bun install --frozen-lockfile --ignore-scripts
 COPY app/index.html app/index.html
 COPY app/vite.config.js app/vite.config.js
+COPY app/public app/public
 COPY app/src app/src
 RUN bun run --filter @local-k8s-demo/web build
 

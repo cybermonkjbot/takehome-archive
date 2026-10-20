@@ -72,8 +72,9 @@ SNAPSHOT_COLUMNS = (
 def latest_snapshot() -> dict[str, object] | None:
     with connect(application_name="snapshot-api") as connection:
         with connection.cursor() as cursor:
+            # SNAPSHOT_COLUMNS is an internal static tuple; no external user inputs
             cursor.execute(
-                "SELECT " + ", ".join(SNAPSHOT_COLUMNS)
+                "SELECT " + ", ".join(SNAPSHOT_COLUMNS)  # nosec B608
                 + " FROM public.system_snapshots ORDER BY sampled_at DESC LIMIT 1"
             )
             row = cursor.fetchone()

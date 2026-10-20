@@ -1,0 +1,84 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-cluster
+  namespace: demo
+  labels:
+    app.kubernetes.io/name: postgres-cluster
+    app.kubernetes.io/part-of: local-stack
+spec:
+  # Multi-instance HA topology. Verify operator compatibility and three real zones first.
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15-minimal-trixie@sha256:f76ba02680a07bdafaa00c81827351b15e671ac11e0e6a0b72f8ee5835cc82c6
+
+  # Require one synchronous standby for acknowledged writes; validate failover behavior.
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+
+  # Dedicated persistent volumes for data and write-ahead logs (WAL)
+  storage:
+    size: 10Gi
+  walStorage:
+    size: 10Gi
+
+  # Strict topology spread across failure domains
+  affinity:
+    topologySpreadConstraints:
+      - maxSkew: 1
+        minDomains: 3
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            cnpg.io/cluster: postgres-cluster
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            cnpg.io/cluster: postgres-cluster
+
+  # Resources: requests equal limits for memory to ensure predictable scheduling
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Bootstrap from managed secrets rather than committed manifests
+  bootstrap:
+    initdb:
+      database: demo
+      owner: demo
+      secret:
+        name: datastore-credentials-v1
+
+  # Secrets must contain usernames matching the managed role names and
+  # versioned passwords. Grants remain in the approved schema migration.
+  managed:
+    roles:
+      - name: snapshot_api
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: api-datastore-credentials-v1
+      - name: snapshot_collector
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: collector-datastore-credentials-v1
+
+  # Automated health and monitoring integration
+  monitoring:
+    enablePodMonitor: false
+
+  # Backup policy is intentionally absent until the operator/plugin version,
+  # object-store destination, credentials, schedule, and restore procedure are selected.

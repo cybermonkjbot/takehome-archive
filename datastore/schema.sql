@@ -1,6 +1,7 @@
 -- Apply once using the selected PostgreSQL platform's approved migration process.
--- Create separate login roles for the API (SELECT only) and collector (INSERT,
--- DELETE only); deliver each credential through its own external secret.
+-- CloudNativePG managed roles define snapshot_api and snapshot_collector; their
+-- login credentials come from separate versioned ExternalSecrets. This migration
+-- grants only the table operations required by each workload.
 CREATE TABLE public.system_snapshots (
     run_id text PRIMARY KEY CHECK (char_length(run_id) BETWEEN 1 AND 253),
     sampled_at timestamptz NOT NULL,

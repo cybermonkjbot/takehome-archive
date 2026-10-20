@@ -1,5 +1,5 @@
-# Provider integration contract; not deployed by the workload base.
-# Choose an HA datastore and namespace-scoped SecretStore before enabling.
+# Declarative datastore configuration and credentials contract.
+# Uses namespace-scoped SecretStore and immutable Secrets for rotation safety.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,11 +15,41 @@ data:
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
+  name: datastore-credentials-v1
+  namespace: demo
+spec:
+  # Cluster bootstrap owner credentials; username must match initdb.owner (demo).
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: datastore-credentials-v1
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+  data:
+    - secretKey: username
+      remoteRef:
+        key: local-stack/datastore/bootstrap-owner/v1
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: local-stack/datastore/bootstrap-owner/v1
+        property: password
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
   name: api-datastore-credentials-v1
   namespace: demo
 spec:
-  # Rotation creates a new versioned target and rolls consumers. In-place
-  # periodic refresh would conflict with an immutable Secret.
+  # Read-only database user credentials for the snapshot API.
   refreshPolicy: CreatedOnce
   secretStoreRef:
     kind: SecretStore
@@ -29,6 +59,11 @@ spec:
     creationPolicy: Owner
     deletionPolicy: Retain
     immutable: true
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
   data:
     - secretKey: username
       remoteRef:
@@ -49,6 +84,7 @@ metadata:
   name: collector-datastore-credentials-v1
   namespace: demo
 spec:
+  # Dedicated write/insert credentials for the collector CronJob.
   refreshPolicy: CreatedOnce
   secretStoreRef:
     kind: SecretStore
@@ -58,6 +94,11 @@ spec:
     creationPolicy: Owner
     deletionPolicy: Retain
     immutable: true
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
   data:
     - secretKey: username
       remoteRef:
@@ -71,5 +112,3 @@ spec:
       remoteRef:
         key: local-stack/datastore/collector-writer/v1
         property: ca.crt
-# No secret is mounted into the static UI. Add CNI-specific DNS and exact
-# database egress rules to the selected deployment overlay before enabling Jobs.
