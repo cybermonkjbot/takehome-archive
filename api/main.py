@@ -16,7 +16,7 @@ import sys
 from typing import Any, AsyncIterator, Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
-from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
+from urllib.request import HTTPSHandler, ProxyHandler, Request as URLRequest, build_opener
 
 # Ensure monorepo root is on sys.path for local and container execution
 repo_root = str(Path(__file__).resolve().parent.parent)
@@ -33,7 +33,7 @@ except ModuleNotFoundError:
         os.execv(str(venv_python), [str(venv_python)] + sys.argv)
     raise
 
-from fastapi import FastAPI, Path as FastPath, Query, Request, status
+from fastapi import FastAPI, Path as FastPath, Query, Request as FastAPIRequest, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -173,7 +173,7 @@ class KubernetesClient:
                 raise LogsUnavailable("Kubernetes service account token is empty.")
             headers["Authorization"] = f"Bearer {token}"
 
-        req = Request(f"{self.origin}{path}", headers=headers, method="GET")
+        req = URLRequest(f"{self.origin}{path}", headers=headers, method="GET")
         opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context))
         try:
             with opener.open(req, timeout=API_TIMEOUT_SECONDS) as response:
@@ -410,7 +410,7 @@ async def get_stack_overview() -> Any:
 
 @app.get("/api/v1/logs/{component}", response_model=ComponentLogsResponse, summary="Component pod logs")
 async def get_component_logs(
-    request: Request,
+    request: FastAPIRequest,
     component: ComponentName = FastPath(..., description="Target component: web-app, collector, or datastore"),
     tail: int = Query(default=100, ge=1, le=MAX_TAIL_LINES, description="Max lines to retrieve from log tail"),
 ) -> Any:
