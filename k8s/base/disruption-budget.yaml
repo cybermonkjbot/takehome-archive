@@ -19,23 +19,3 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: snapshot-api
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: log-api
-spec:
-  minAvailable: 2
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: log-api
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: log-api
-spec:
-  minAvailable: 2
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: log-api

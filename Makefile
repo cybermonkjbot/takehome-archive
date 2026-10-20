@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-IMAGES := web-app:0.1.0 api:0.1.0 log-api:0.1.0 collector:0.1.0
+IMAGES := web-app:0.1.0 api:0.1.0 collector:0.1.0
 TRIVY_SEVERITY := CRITICAL,HIGH
 TRIVY_IGNORE := .trivyignore.yaml
 SBOM_OUTPUT := build/source-inventory.cyclonedx.json
@@ -37,7 +37,7 @@ check-tools: ## Check CLI tool availability
 .PHONY: sast
 sast: ## Run Bandit on Python and parse Kubernetes YAML
 	@test -n "$(BIN_BANDIT)" || { echo "Error: bandit is required; syntax compilation is not a SAST substitute."; exit 1; }
-	@bandit -r api/ log-api/ collector/ datastore/ -ll -ii
+	@bandit -r api/ collector/ datastore/ -ll -ii
 	@python3 -c "import glob, yaml; [list(yaml.safe_load_all(open(f))) for f in glob.glob('k8s/**/*.yaml', recursive=True)]"
 
 .PHONY: scan-deps

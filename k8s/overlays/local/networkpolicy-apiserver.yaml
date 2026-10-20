@@ -1,0 +1,52 @@
+# Minikube's Kubernetes API Service is 10.96.0.1:443 and is DNATed to the
+# control-plane node at 192.168.49.2:8443. Both exact destinations are allowed
+# because Calico evaluates the post-DNAT host endpoint on this local profile.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: snapshot-api-to-minikube-apiserver
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: snapshot-api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: 192.168.49.2/32
+      ports:
+        - protocol: TCP
+          port: 8443
+---
+# CNPG's instance manager uses its scoped ServiceAccount for primary state and
+# failover coordination. Limit its API path to the local cluster endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-to-minikube-apiserver
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: postgres-cluster
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: 192.168.49.2/32
+      ports:
+        - protocol: TCP
+          port: 8443

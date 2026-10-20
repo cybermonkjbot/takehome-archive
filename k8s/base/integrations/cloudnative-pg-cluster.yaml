@@ -22,21 +22,43 @@ spec:
     size: 10Gi
 
   # Strict topology spread across failure domains
-  affinity:
-    topologySpreadConstraints:
-      - maxSkew: 1
-        minDomains: 3
-        topologyKey: topology.kubernetes.io/zone
-        whenUnsatisfiable: DoNotSchedule
-        labelSelector:
-          matchLabels:
-            cnpg.io/cluster: postgres-cluster
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
-        labelSelector:
-          matchLabels:
-            cnpg.io/cluster: postgres-cluster
+  topologySpreadConstraints:
+    - maxSkew: 1
+      minDomains: 3
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          cnpg.io/cluster: postgres-cluster
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          cnpg.io/cluster: postgres-cluster
+
+  # The image supports the configured non-root numeric identity. Set this on
+  # both pod and container contexts so Restricted PSA and the project contract
+  # do not depend on operator defaults.
+  postgresUID: 10001
+  postgresGID: 10001
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+    capabilities:
+      drop: ["ALL"]
 
   # Resources: requests equal limits for memory to ensure predictable scheduling
   resources:
@@ -44,7 +66,7 @@ spec:
       cpu: 250m
       memory: 512Mi
     limits:
-      cpu: 500m
+      cpu: 250m
       memory: 512Mi
 
   # Bootstrap from managed secrets rather than committed manifests

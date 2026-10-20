@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+resources:
+  - service-accounts.yaml
+  - app.yaml
+  - snapshot-api.yaml
+  - api-pod-logs-rbac.yaml
+  - api-network-policy.yaml
+  - dns-egress.yaml
+  - collector.yaml
+  - autoscaling.yaml
+  - disruption-budget.yaml
+  - integrations/datastore.yaml
+  - integrations/datastore-network-policy.yaml
+  - integrations/cloudnative-pg-cluster.yaml

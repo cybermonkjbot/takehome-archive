@@ -1,0 +1,8 @@
+name: cnpg-image-pin
+version: 1.0.0
+type: postrenderer/v1
+apiVersion: v1
+runtime: subprocess
+runtimeConfig:
+  platformCommand:
+    - command: "${HELM_PLUGIN_DIR}/pin-cnpg-chart-image.sh"

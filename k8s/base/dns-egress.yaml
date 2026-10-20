@@ -9,7 +9,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/name
         operator: In
-        values: [web-app, snapshot-api, log-api, collector]
+        values: [web-app, snapshot-api, collector]
   policyTypes: [Egress]
   egress:
     - to:

@@ -1,0 +1,24 @@
+# CNPG manages its PostgreSQL instances through the Kubernetes API and probes
+# the instance manager on port 8000. The rule is restricted to the operator
+# namespace and PostgreSQL pods; no broad control-plane egress is granted.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-from-cnpg-operator
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: postgres-cluster
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+      ports:
+        - protocol: TCP
+          port: 8000

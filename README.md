@@ -1,13 +1,19 @@
 # Local Kubernetes system snapshot
 
+## Current local setup
+
+Docker Desktop 4.96.0, Docker CLI 29.9.1, kubectl 1.37.1, Minikube 1.39.0, and Helm 4.3.1 are installed. The `takehome` Minikube profile has three Ready Kubernetes 1.37.1 nodes, Calico v3.32.2 ready on every node, and a ready metrics-server. The `demo` namespace has Restricted Pod Security Admission pinned to v1.35 and default-deny ingress and egress applied.
+
+The application, operator, and datastore workloads are not deployed, so there is no live app URL yet. The local API Service address is `10.96.0.1:443` and its endpoint is `192.168.49.2:8443`; the log API policy still permits DNS only. This is one laptop and one failure domain, with no zone-level availability. About 5 GiB were free on the host at the final 2026-10-20 check.
+
 ## Runtime contract
 
 - **Ports:** the web container listens on HTTP `8080` behind Service port `80`. The snapshot API listens on `8080`, and the log API on `8181`, behind internal-only Services on port `80`. The CloudNativePG datastore listens on port `5432` with instance manager on `8000`.
 - **Probes:** the web, snapshot API, and log API expose local `/healthz`; the snapshot API uses `/readyz` for PostgreSQL, and the log API uses `/readyz` to check Kubernetes API access. The log API remains unready while deployment egress is DNS-only.
 - **Writable mounts:** the Nginx web pod has a 16 MiB memory-backed `/tmp`; the collector Job has an 8 MiB memory-backed `/tmp`. The APIs have no writable filesystem mount. Snapshot API and collector mount only their own database credential files at `/var/run/secrets/datastore`; the log API receives a projected service-account token for its scoped read calls.
-- **Infrastructure dependencies:** a compatible CloudNativePG operator and persistent storage, a namespace-scoped `SecretStore` from the selected External Secrets provider, cluster DNS and an enforcing CNI, three failure zones, and a metrics API for the HPAs. The raw-log route remains disabled until an identity-verifying integration is implemented and Kubernetes API access is verified.
+- **Infrastructure dependencies:** a compatible CloudNativePG operator and persistent storage, a namespace-scoped `SecretStore` from the selected External Secrets provider, cluster DNS and an enforcing CNI, three failure zones for the production topology, and a metrics API for the HPAs. The local CNI and metrics API are ready. The raw-log route remains disabled until an identity-verifying integration is implemented and Kubernetes API access is verified.
 
-The manifests name CloudNativePG and `postgres-cluster-rw.demo.svc.cluster.local`; they have not been checked against a target cluster. The operator, SecretStore provider, storage and backup services, API-server network path, and image digests need target values before admission. No browser ingress is configured.
+The manifests name CloudNativePG and `postgres-cluster-rw.demo.svc.cluster.local`; the CloudNativePG operator and CRD are not installed, so the datastore schema has not been checked against the local cluster. The SecretStore provider, database CA and credentials, backup service, verified API-server pod path, and published workload image digests still need resolution before admission. No browser ingress is configured.
 
 ## Data flow
 
@@ -52,7 +58,7 @@ The original standalone PostgreSQL StatefulSet remains quarantined at `datastore
 
 ## Build artifacts
 
-The repository uses Bun 1.3.14 and Docker BuildKit. Each image builds from the repository root, and each Dockerfile has a deny-by-default context allowlist. No dependency installation or image build has been run for this task.
+The repository uses Bun 1.3.14 and Docker BuildKit. Each image builds from the repository root, and each Dockerfile has a deny-by-default context allowlist. The four local image builds completed. `image:web` runs the Vite build with the pinned Bun toolchain, then copies only `app/dist` into the pinned Nginx runtime image. API and collector dependencies install from the hash-locked Python requirements file in build stages.
 
 ```sh
 bun run build
@@ -68,7 +74,7 @@ For local logs, run `kubectl proxy --address=127.0.0.1 --port=8001`, then `KUBER
 
 The Dockerfiles pin exact base versions and verified SHA256 digests. API and collector install only hash-locked Psycopg wheels in their build stages. Local image tags are not release identities. A release requires published image digests, artifact review, signature/provenance checks, and a selected platform. `release.example.json` lists all required image inputs.
 
-The renderer requires an explicit release-input file with published immutable image references for the web app, snapshot API, log API, and collector. It validates those inputs and the statically pinned CloudNativePG image; it does not contact or apply to a cluster. No application image has been built or published for this workspace.
+The renderer requires an explicit release-input file with published immutable image references for the web app, snapshot API, log API, and collector. It validates those inputs and the statically pinned CloudNativePG image; it does not contact or apply to a cluster. Local images were built but not published or scanned. The ignored local `release.json` uses the Nginx and Python base-image digests as workload references, so the renderer rejects it; supply actual published image digests before release rendering.
 
 Once image references are available, use:
 

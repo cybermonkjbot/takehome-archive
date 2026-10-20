@@ -1,0 +1,110 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+resources:
+  - ../../base
+  - networkpolicy-apiserver.yaml
+  - networkpolicy-cnpg-operator.yaml
+images:
+  - name: registry.invalid/local-stack/web
+    newName: web-app
+    newTag: 0.1.0
+  - name: registry.invalid/local-stack/api
+    newName: api
+    newTag: 0.1.0
+  - name: registry.invalid/local-stack/collector
+    newName: collector
+    newTag: 0.1.0
+patches:
+  # The local Minikube nodes have hostnames but no zone labels. Remove only
+  # zone spread here; production/base manifests still require real zones.
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: web-app|snapshot-api
+    patch: |-
+      - op: remove
+        path: /spec/template/spec/topologySpreadConstraints/0
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      group: batch
+      version: v1
+      kind: CronJob
+      name: collector
+    patch: |-
+      - op: remove
+        path: /spec/jobTemplate/spec/template/spec/topologySpreadConstraints/0
+      - op: replace
+        path: /spec/jobTemplate/spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  # The local deployment creates these credential Secrets from runtime-only
+  # files. ExternalSecret resources remain part of the release integration.
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: datastore-credentials-v1
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: datastore-credentials-v1
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: api-datastore-credentials-v1
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: api-datastore-credentials-v1
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: collector-datastore-credentials-v1
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: collector-datastore-credentials-v1
+        namespace: demo
+  # The local profile has one laptop failure domain and insufficient disk for
+  # a replicated 60 GiB PostgreSQL footprint; it runs one durable 2 GiB instance.
+  - target:
+      group: postgresql.cnpg.io
+      version: v1
+      kind: Cluster
+      name: postgres-cluster
+    patch: |-
+      - op: replace
+        path: /spec/instances
+        value: 1
+      - op: replace
+        path: /spec/minSyncReplicas
+        value: 0
+      - op: replace
+        path: /spec/maxSyncReplicas
+        value: 0
+      - op: replace
+        path: /spec/storage/size
+        value: 2Gi
+      - op: replace
+        path: /spec/resources/limits/cpu
+        value: 500m
+      - op: replace
+        path: /spec/resources/requests/cpu
+        value: 500m
+      - op: remove
+        path: /spec/walStorage
+      - op: remove
+        path: /spec/topologySpreadConstraints/0

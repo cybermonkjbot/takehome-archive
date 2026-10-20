@@ -1,146 +1,338 @@
-"""Read-only HTTP API for the most recent persisted collector snapshot."""
+"""Unified FastAPI service providing system telemetry snapshots and Kubernetes component logs."""
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 import json
+import logging
 import os
-import signal
-import sys
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from types import FrameType
-from urllib.parse import urlsplit
+import ssl
+import sys
+from typing import Any, AsyncIterator, Literal
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlencode, urlsplit
+from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
-# Ensure monorepo root is on sys.path for local execution
+# Ensure monorepo root is on sys.path for local and container execution
 repo_root = str(Path(__file__).resolve().parent.parent)
 if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
 
+# If running directly under system python without virtual environment activated,
+# transparently re-exec with the workspace virtual environment if available.
+try:
+    import fastapi  # noqa: F401
+except ModuleNotFoundError:
+    venv_python = Path(repo_root) / ".venv" / "bin" / "python"
+    if venv_python.is_file() and sys.executable != str(venv_python):
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+    raise
+
+from fastapi import FastAPI, Path as FastPath, Query, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
 from datastore.postgres import check_schema, latest_snapshot
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("api")
 
-class BoundedThreadingHTTPServer(ThreadingHTTPServer):
-    """Bound worker threads so request spikes cannot create unbounded memory use."""
+NAMESPACE = "demo"
+TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+API_TIMEOUT_SECONDS = 3
+MAX_PODS = 6
+MAX_POD_LIST_BYTES = 256 * 1024
+MAX_LOG_BYTES = 16 * 1024
+MAX_TAIL_LINES = 200
 
-    daemon_threads = False
-    block_on_close = True
-    request_queue_size = 32
+ComponentName = Literal["web-app", "collector", "datastore"]
 
-    def __init__(self, address: tuple[str, int], handler: type[BaseHTTPRequestHandler]):
-        self._worker_slots = threading.BoundedSemaphore(16)
-        super().__init__(address, handler)
-
-    def process_request(self, request, client_address) -> None:
-        self._worker_slots.acquire()
-        try:
-            super().process_request(request, client_address)
-        except Exception:
-            self._worker_slots.release()
-            raise
-
-    def process_request_thread(self, request, client_address) -> None:
-        try:
-            super().process_request_thread(request, client_address)
-        finally:
-            self._worker_slots.release()
+COMPONENTS: dict[ComponentName, dict[str, str]] = {
+    "web-app": {
+        "selector": "app.kubernetes.io/name=web-app",
+        "container": "web-app",
+    },
+    "collector": {
+        "selector": "app.kubernetes.io/name=collector",
+        "container": "collector",
+    },
+    "datastore": {
+        "selector": "cnpg.io/cluster=postgres-cluster",
+        "container": "postgres",
+    },
+}
 
 
-class Handler(BaseHTTPRequestHandler):
-    server_version = "SnapshotAPI"
-    sys_version = ""
+class LogsUnavailable(Exception):
+    """Raised when a Kubernetes API request cannot be completed securely."""
 
-    def send_json(self, status: int, payload: dict[str, object]) -> None:
-        body = json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(body)
-        self.close_connection = True
 
-    def do_GET(self) -> None:
-        path = urlsplit(self.path).path
-        if path == "/healthz":
-            self.send_json(200, {"status": "ok"})
-            return
-        if path == "/readyz":
+# ---------------------------------------------------------------------------
+# Pydantic Schemas
+# ---------------------------------------------------------------------------
+
+class HealthResponse(BaseModel):
+    status: str = Field(..., description="Service health indicator")
+
+
+class SnapshotResponse(BaseModel):
+    snapshot: dict[str, Any] | None = Field(default=None, description="Latest collected system metrics")
+
+
+class PodLogEntry(BaseModel):
+    name: str = Field(..., description="Pod name")
+    container: str = Field(..., description="Container name within the pod")
+    logs: str = Field(..., description="Retrieved log contents")
+    error: bool = Field(default=False, description="Whether log retrieval encountered an error")
+
+
+class ComponentLogsResponse(BaseModel):
+    component: str = Field(..., description="Target component name")
+    tail_lines: int = Field(..., description="Number of tail lines requested")
+    pods: list[PodLogEntry] = Field(default_factory=list, description="Log entries per pod")
+    truncated: bool = Field(default=False, description="Whether logs were truncated by byte/pod limits")
+    has_error: bool = Field(default=False, description="Whether any pod log encountered an error")
+
+
+# ---------------------------------------------------------------------------
+# Kubernetes Log Client
+# ---------------------------------------------------------------------------
+
+class KubernetesClient:
+    """Read-only client scoped to in-cluster or loopback proxy Kubernetes endpoints."""
+
+    def __init__(self) -> None:
+        self.origin, self.use_service_account = self._resolve_origin()
+
+    @staticmethod
+    def _resolve_origin() -> tuple[str, bool]:
+        configured = os.environ.get("KUBERNETES_API_URL")
+        if configured:
+            parsed = urlsplit(configured)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+                or parsed.username
+                or parsed.password
+            ):
+                raise LogsUnavailable("Invalid Kubernetes API endpoint configuration.")
+            if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+                raise LogsUnavailable("Unencrypted Kubernetes API access is strictly limited to loopback.")
+            return f"{parsed.scheme}://{parsed.netloc}", parsed.scheme == "https"
+
+        host = os.environ.get("KUBERNETES_SERVICE_HOST")
+        port = os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS", "443")
+        if not host or not port.isdigit() or not 1 <= int(port) <= 65535:
+            raise LogsUnavailable("Kubernetes API host or port is not configured.")
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"https://{host}:{port}", True
+
+    def request(self, path: str, max_bytes: int) -> bytes:
+        headers = {"Accept": "application/json, text/plain"}
+        context = None
+        if self.use_service_account:
             try:
-                check_schema()
-            except Exception:
-                self.send_json(503, {"status": "not_ready"})
-            else:
-                self.send_json(200, {"status": "ready"})
-            return
-        if path == "/api/v1/snapshot":
-            try:
-                snapshot = latest_snapshot()
-            except Exception:
-                self.send_json(503, {"error": "snapshot_unavailable"})
-            else:
-                self.send_json(200, {"snapshot": snapshot})
-            return
-        self.send_json(404, {"error": "not_found"})
+                with open(TOKEN_PATH, "r", encoding="utf-8") as token_file:
+                    token = token_file.read(8192).strip()
+                context = ssl.create_default_context(cafile=CA_PATH)
+            except (OSError, ssl.SSLError):
+                raise LogsUnavailable("Kubernetes service account credentials are unavailable.") from None
+            if not token:
+                raise LogsUnavailable("Kubernetes service account token is empty.")
+            headers["Authorization"] = f"Bearer {token}"
 
-    def log_message(self, format: str, *args: object) -> None:
-        # Exclude query strings and user-supplied header values from access logs.
-        path = urlsplit(self.path).path
-        sys.stdout.write(
-            f"{self.log_date_time_string()} {self.client_address[0]} "
-            f"{self.command} {path} {self._response_code()}\n"
+        req = Request(f"{self.origin}{path}", headers=headers, method="GET")
+        opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context))
+        try:
+            with opener.open(req, timeout=API_TIMEOUT_SECONDS) as response:
+                body = response.read(max_bytes + 1)
+        except HTTPError:
+            raise LogsUnavailable("Kubernetes request was denied or target resource is missing.") from None
+        except (OSError, URLError, ssl.SSLError, TimeoutError):
+            raise LogsUnavailable("Kubernetes API communication timed out or failed.") from None
+        if len(body) > max_bytes:
+            raise LogsUnavailable("Kubernetes response exceeded maximum buffer limit.")
+        return body
+
+    def fetch_pod_logs(self, pod_name: str, container: str, tail_lines: int) -> tuple[str, bool, bool]:
+        query = urlencode({
+            "container": container,
+            "tailLines": str(tail_lines),
+            "limitBytes": str(MAX_LOG_BYTES),
+            "timestamps": "true",
+        })
+        path = f"/api/v1/namespaces/{NAMESPACE}/pods/{quote(pod_name, safe='')}/log?{query}"
+        try:
+            body = self.request(path, MAX_LOG_BYTES)
+        except LogsUnavailable:
+            return "Log unavailable.", False, True
+        return body.decode("utf-8", errors="replace"), len(body) >= MAX_LOG_BYTES, False
+
+    def get_component_logs(self, component: ComponentName, tail_lines: int) -> ComponentLogsResponse:
+        config = COMPONENTS[component]
+        query = urlencode({"labelSelector": config["selector"], "limit": "100"})
+        path = f"/api/v1/namespaces/{NAMESPACE}/pods?{query}"
+        try:
+            payload = self.request(path, MAX_POD_LIST_BYTES)
+            items = json.loads(payload).get("items", [])
+        except (LogsUnavailable, ValueError, AttributeError, TypeError):
+            raise LogsUnavailable("Unable to list pods for component.") from None
+
+        if not isinstance(items, list):
+            raise LogsUnavailable("Invalid pod list response from Kubernetes API.")
+
+        pods = [
+            pod for pod in items
+            if isinstance(pod, dict)
+            and isinstance(pod.get("metadata"), dict)
+            and isinstance(pod["metadata"].get("name"), str)
+        ]
+        pods.sort(key=lambda p: p["metadata"].get("creationTimestamp", ""), reverse=True)
+        truncated = len(pods) > MAX_PODS
+        selected = pods[:MAX_PODS]
+
+        entries: list[PodLogEntry] = []
+        has_error = False
+        for pod in selected:
+            pod_name = pod["metadata"]["name"]
+            logs, log_truncated, log_err = self.fetch_pod_logs(pod_name, config["container"], tail_lines)
+            if log_truncated:
+                truncated = True
+            if log_err:
+                has_error = True
+            entries.append(PodLogEntry(
+                name=pod_name,
+                container=config["container"],
+                logs=logs,
+                error=log_err,
+            ))
+
+        return ComponentLogsResponse(
+            component=component,
+            tail_lines=tail_lines,
+            pods=entries,
+            truncated=truncated,
+            has_error=has_error,
         )
 
-    def _response_code(self) -> int:
-        return getattr(self, "_last_response_code", 0)
 
-    def send_response(self, code: int, message: str | None = None) -> None:
-        self._last_response_code = code
-        super().send_response(code, message)
+# ---------------------------------------------------------------------------
+# FastAPI Application & Lifespan
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    logger.info("Initializing API services...")
+    yield
+    logger.info("API services shutting down cleanly.")
 
 
-def request_shutdown(_signum: int, _frame: FrameType | None) -> None:
-    """Wake the main thread, which drains the server from outside serve_forever."""
-    shutdown_event.set()
+app = FastAPI(
+    title="Local Kubernetes Snapshot & Diagnostics API",
+    version="1.0.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=lifespan,
+)
 
 
-shutdown_event = threading.Event()
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Any, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"error": "invalid_parameters", "detail": str(exc)},
+    )
+
+
+@app.get("/healthz", response_model=HealthResponse, summary="Process liveness probe")
+async def healthz() -> HealthResponse:
+    """Local process health check; verifies web server liveness without external dependencies."""
+    return HealthResponse(status="ok")
+
+
+@app.get("/readyz", response_model=HealthResponse, summary="Workload readiness probe")
+async def readyz() -> JSONResponse:
+    """Readiness probe; confirms database schema connectivity and migration readiness."""
+    try:
+        await asyncio.to_thread(check_schema)
+    except Exception as exc:
+        logger.warning("Readiness probe check failed: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "not_ready", "error": "database_not_ready"},
+        )
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"status": "ready"})
+
+
+@app.get("/api/v1/snapshot", response_model=SnapshotResponse, summary="Latest telemetry snapshot")
+async def get_snapshot() -> Any:
+    """Retrieves the newest system telemetry snapshot persisted by the collector CronJob."""
+    try:
+        snapshot = await asyncio.to_thread(latest_snapshot)
+    except Exception as exc:
+        logger.error("Failed to query datastore for snapshot: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "snapshot_unavailable", "detail": "snapshot_unavailable"},
+        )
+    return SnapshotResponse(snapshot=snapshot)
+
+
+@app.get("/api/v1/logs/{component}", response_model=ComponentLogsResponse, summary="Component pod logs")
+async def get_component_logs(
+    component: ComponentName = FastPath(..., description="Target component: web-app, collector, or datastore"),
+    tail: int = Query(default=100, ge=1, le=MAX_TAIL_LINES, description="Max lines to retrieve from log tail"),
+) -> Any:
+    """Streams tail logs for all pods backing the specified component in the demo namespace."""
+    try:
+        client = KubernetesClient()
+        return await asyncio.to_thread(client.get_component_logs, component, tail)
+    except LogsUnavailable as exc:
+        logger.warning("Log request unavailable for component %s: %s", component, exc)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "logs_unavailable", "detail": "logs_unavailable"},
+        )
+    except Exception as exc:
+        logger.error("Unexpected error retrieving logs for component %s: %s", component, exc)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "logs_unavailable", "detail": "logs_unavailable"},
+        )
 
 
 def main() -> None:
+    import uvicorn
+
     # Binding to 0.0.0.0 is required inside the container network namespace
     host = os.environ.get("API_HOST", "0.0.0.0")  # nosec B104
-    if not host:
-        print("API_HOST must not be empty.", file=sys.stderr)
-        raise SystemExit(2)
     try:
         port = int(os.environ.get("PORT", "8080"))
     except ValueError:
         print("PORT must be an integer.", file=sys.stderr)
         raise SystemExit(2) from None
+
     if not 1 <= port <= 65535:
         print("PORT must be between 1 and 65535.", file=sys.stderr)
         raise SystemExit(2)
 
-    signal.signal(signal.SIGTERM, request_shutdown)
-    signal.signal(signal.SIGINT, request_shutdown)
-    server = BoundedThreadingHTTPServer((host, port), Handler)
-    server_thread = threading.Thread(
-        target=server.serve_forever,
-        kwargs={"poll_interval": 0.5},
-        name="http-server",
+    logger.info("Starting Unified FastAPI service on %s:%d", host, port)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=True,
     )
-    server_thread.start()
-    print(f"Snapshot API listening on port {port}.")
-    try:
-        shutdown_event.wait()
-    finally:
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
-        print("Snapshot API drained and stopped.")
 
 
 if __name__ == "__main__":

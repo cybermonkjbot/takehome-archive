@@ -11,9 +11,7 @@
     "dev:api": "python3 api/main.py",
     "build": "bun run --filter @local-k8s-demo/web build",
     "preview": "bun run --filter @local-k8s-demo/web preview",
-    "dev:log-api": "python3 log-api/main.py",
-    "image:log-api": "docker build -t log-api:0.1.0 -f log-api/Dockerfile .",
-    "image:web": "docker build -t web-app:0.1.0 -f app/Dockerfile .",
+    "image:web": "bun run build && docker build -t web-app:0.1.0 -f app/Dockerfile .",
     "image:api": "docker build -t api:0.1.0 -f api/Dockerfile .",
     "image:collector": "docker build -t collector:0.1.0 -f collector/Dockerfile .",
     "k8s:render": "bun scripts/render-k8s.mjs"

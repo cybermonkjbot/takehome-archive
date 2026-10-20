@@ -7,6 +7,7 @@ variables:
 
 stages:
   - validate
+  - frontend-build
   - build-and-scan
 
 validate:sast-and-deps:
@@ -15,9 +16,20 @@ validate:sast-and-deps:
   before_script:
     - pip install --no-cache-dir bandit pip-audit pyyaml
   script:
-    - bandit -r api/ log-api/ collector/ datastore/ -ll -ii
-    - pip-audit -r datastore/requirements.lock --desc
+    - bandit -r api/ collector/ datastore/ -ll -ii
+    - pip-audit -r datastore/requirements.lock --desc --disable-pip
     - python -c "import glob, yaml; [list(yaml.safe_load_all(open(f))) for f in glob.glob('k8s/**/*.yaml', recursive=True)]"
+
+frontend:build:
+  stage: frontend-build
+  image: oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+  script:
+    - bun install --frozen-lockfile --ignore-scripts --network-concurrency=4
+    - bun run build
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - app/dist/
 
 build-and-scan:
   stage: build-and-scan
@@ -29,10 +41,9 @@ build-and-scan:
     - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v${TRIVY_VERSION}
     - docker build -t web-app:$CI_COMMIT_SHORT_SHA -f app/Dockerfile .
     - docker build -t api:$CI_COMMIT_SHORT_SHA -f api/Dockerfile .
-    - docker build -t log-api:$CI_COMMIT_SHORT_SHA -f log-api/Dockerfile .
     - docker build -t collector:$CI_COMMIT_SHORT_SHA -f collector/Dockerfile .
     - |
-      for img in web-app api log-api collector; do
+      for img in web-app api collector; do
         image="$img:$CI_COMMIT_SHORT_SHA"
         report="sbom-${img}-${CI_COMMIT_SHORT_SHA}.cyclonedx.json"
         trivy image --exit-code 1 --severity ${SEVERITY_THRESHOLD} --ignorefile ${TRIVY_IGNORE} --format cyclonedx --output "$report" "$image"

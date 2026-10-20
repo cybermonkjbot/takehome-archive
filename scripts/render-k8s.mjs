@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pinnedBaseDigests = new Set(
-  ['app/Dockerfile', 'api/Dockerfile', 'log-api/Dockerfile', 'collector/Dockerfile']
+  ['app/Dockerfile', 'api/Dockerfile', 'collector/Dockerfile']
     .flatMap((path) => [...readFileSync(join(root, path), 'utf8').matchAll(/@sha256:([a-f0-9]{64})/g)])
     .map((match) => `sha256:${match[1]}`),
 );
@@ -44,12 +44,11 @@ function main() {
   try {
     release = JSON.parse(readFileSync(releasePath, 'utf8'));
   } catch {
-    throw new Error('The release input must be readable JSON with webImage, apiImage, logApiImage, and collectorImage references.');
+    throw new Error('The release input must be readable JSON with webImage, apiImage, and collectorImage references.');
   }
   const images = [
     imageOverride(release.webImage, 'registry.invalid/local-stack/web'),
     imageOverride(release.apiImage, 'registry.invalid/local-stack/api'),
-    imageOverride(release.logApiImage, 'registry.invalid/local-stack/log-api'),
     imageOverride(release.collectorImage, 'registry.invalid/local-stack/collector'),
   ];
 

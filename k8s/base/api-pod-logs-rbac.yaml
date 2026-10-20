@@ -1,17 +1,9 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: log-api
-# The log API makes direct read-only Kubernetes API requests. This is the
-# only workload account with pod-list and pod-log permissions.
-automountServiceAccountToken: true
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: log-api
+  name: api-pod-logs
 rules:
-  # The API applies fixed component label selectors before requesting logs.
+  # The unified API applies fixed component label selectors before requesting logs.
   # Kubernetes RBAC cannot constrain list-by-label, so this read scope includes
   # pod metadata and pod logs for the demo namespace only.
   - apiGroups: [""]
@@ -24,12 +16,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: log-api
+  name: api-pod-logs
 subjects:
   - kind: ServiceAccount
-    name: log-api
+    name: snapshot-api
     namespace: demo
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: log-api
+  name: api-pod-logs

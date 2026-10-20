@@ -1,0 +1,51 @@
+# Values for the pinned CloudNativePG 0.29.1 chart (operator 1.30.1).
+# This is a one-replica controller for the single-host local demo cluster.
+image:
+  repository: ghcr.io/cloudnative-pg/cloudnative-pg
+  tag: 1.30.1
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    cpu: 100m
+    memory: 192Mi
+
+# The operator writes temporary reconciliation and webhook data here.
+scratchData:
+  emptyDir:
+    medium: Memory
+    sizeLimit: 16Mi
+
+# Kubernetes API access is required by CNPG to maintain PostgreSQL state.
+config:
+  clusterWide: true
+  maxConcurrentReconciles: 2
+
+# Minikube's API server is host-networked on the control-plane node. Keeping
+# its admission webhook on that node avoids the broken host-to-worker path in
+# this local Docker-driver cluster.
+nodeSelector:
+  kubernetes.io/hostname: takehome

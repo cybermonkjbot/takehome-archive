@@ -1,14 +1,6 @@
 # Dockerfile-specific root-context allowlist; no environment or key files enter.
 **
-!package.json
-!bun.lock
 !app/
-!app/package.json
-!app/index.html
+!app/dist/
+!app/dist/**
 !app/nginx.conf
-!app/public/
-!app/public/**
-!app/src/
-!app/src/main.js
-!app/src/style.css
-!app/vite.config.js
