@@ -235,3 +235,6 @@ and for secrets i ensured model used secretstore and externalsecret ensuring zer
 
 
 
+At the end i made a start.sh script with this prompt.
+
+"Create a start.sh script that can be used to start the application, it should by default, delete the demo namespace if it exists, then it should create it, set up the secrets using kustomize, deploy the postgres cluster, deploy the collector, deploy the web app, and then open the browser to the web app after 30 seconds delay, give user the option to skip the opening of the browser. use minikube, install dependencies with the users permission then create a cluster if it doesnt exist, then start the app, make it interactive and fun to use, use color coding and make it look good and professional. The user experiencing this might be a good engineer but probably not heavily on the infra side of things."

@@ -4,6 +4,7 @@
 !.env.example
 *.secret.yaml
 *.secret.yml
+k8s/overlays/local/secrets-local.yaml
 
 # Python
 __pycache__/

@@ -17,6 +17,14 @@ BIN_DOCKER := $(shell command -v docker 2>/dev/null)
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
+.PHONY: start
+start: ## One-script start for the full local stack (API + Web)
+	@./start.sh
+
+.PHONY: start-k8s
+start-k8s: ## One-script deploy and port-forward on Kubernetes
+	@./start.sh k8s
+
 .PHONY: check
 check: sast scan-deps sbom ## Run source checks (requires Bandit, pip-audit, Trivy, Bun, and PyYAML)
 

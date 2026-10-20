@@ -5,6 +5,8 @@ resources:
   - ../../base
   - networkpolicy-apiserver.yaml
   - networkpolicy-cnpg-operator.yaml
+# Immutable local credential Secrets are bootstrapped once by start.sh. Keep
+# them out of Kustomize apply so later deploys never patch or print their data.
 images:
   - name: registry.invalid/local-stack/web
     newName: web-app
@@ -89,6 +91,14 @@ patches:
       - op: replace
         path: /spec/imageName
         value: postgres-local:16.15-minimal-trixie-uid10001
+      # Minikube's standard StorageClass provisions node-local hostPath data
+      # without PV node affinity. Keep this single local instance on the
+      # control-plane node where its persistent volume was provisioned.
+      - op: add
+        path: /spec/affinity
+        value:
+          nodeSelector:
+            kubernetes.io/hostname: takehome
       - op: replace
         path: /spec/instances
         value: 1

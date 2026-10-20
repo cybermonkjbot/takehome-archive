@@ -7,6 +7,8 @@
     "app"
   ],
   "scripts": {
+    "start": "./start.sh",
+    "start:k8s": "./start.sh k8s",
     "dev": "bun run --filter @local-k8s-demo/web dev",
     "dev:api": "python3 api/main.py",
     "build": "bun run --filter @local-k8s-demo/web build",

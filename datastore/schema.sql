@@ -18,5 +18,8 @@ CREATE TABLE public.system_snapshots (
 
 -- Replace these role names only if the selected platform's DBA policy requires
 -- different names. Neither workload receives table ownership or schema DDL.
+-- PostgreSQL also requires the collector to read columns used by its conflict
+-- target and retention predicate; column-level grants avoid exposing telemetry.
 GRANT SELECT ON public.system_snapshots TO snapshot_api;
 GRANT INSERT, DELETE ON public.system_snapshots TO snapshot_collector;
+GRANT SELECT (run_id, sampled_at) ON public.system_snapshots TO snapshot_collector;
