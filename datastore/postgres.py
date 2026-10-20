@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 try:
+    # pyrefly: ignore[missing-import]
     import psycopg
 except ImportError:
     psycopg = None

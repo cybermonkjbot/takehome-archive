@@ -87,6 +87,9 @@ patches:
       name: postgres-cluster
     patch: |-
       - op: replace
+        path: /spec/imageName
+        value: postgres-local:16.15-minimal-trixie-uid10001
+      - op: replace
         path: /spec/instances
         value: 1
       - op: replace
@@ -108,3 +111,9 @@ patches:
         path: /spec/walStorage
       - op: remove
         path: /spec/topologySpreadConstraints/0
+      # Bound PostgreSQL shared memory and temporary query files on the laptop.
+      - op: add
+        path: /spec/ephemeralVolumesSizeLimit
+        value:
+          shm: 64Mi
+          temporaryData: 256Mi

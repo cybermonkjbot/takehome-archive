@@ -1,0 +1,2 @@
+# This image uses named image stages only; deny every filesystem context file.
+**

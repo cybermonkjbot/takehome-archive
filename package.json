@@ -14,6 +14,7 @@
     "image:web": "bun run build && docker build -t web-app:0.1.0 -f app/Dockerfile .",
     "image:api": "docker build -t api:0.1.0 -f api/Dockerfile .",
     "image:collector": "docker build -t collector:0.1.0 -f collector/Dockerfile .",
+    "image:postgres-local": "docker build --platform linux/arm64 -t postgres-local:16.15-minimal-trixie-uid10001 -f deploy/postgres-local/Dockerfile .",
     "k8s:render": "bun scripts/render-k8s.mjs"
   }
 }
