@@ -1,0 +1,4 @@
+# Dockerfile-specific deny-by-default root-context allowlist.
+**
+!log-api/
+!log-api/main.py

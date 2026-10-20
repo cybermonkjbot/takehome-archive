@@ -1,0 +1,28 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.secret.yaml
+*.secret.yml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local build output
+dist/
+build/
+node_modules/
+
+# Per-release inputs, output, and render scratch space
+release.json
+release.yaml
+.render-*/

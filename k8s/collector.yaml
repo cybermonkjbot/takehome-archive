@@ -1,0 +1,101 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: collector
+  labels:
+    app.kubernetes.io/name: collector
+spec:
+  schedule: "0 */4 * * *"
+  timeZone: Etc/UTC
+  # Activated now that idempotent collection and telemetry logic are implemented.
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: collector
+        spec:
+          serviceAccountName: collector
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 30
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          # A finite job has one active pod; prefer available hosts/zones on retry.
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: collector
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: collector
+          containers:
+            - name: collector
+              # Replaced with an immutable released artifact by render-k8s.
+              image: registry.invalid/local-stack/collector:0.1.0
+              imagePullPolicy: Always
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: runtime-tmp
+                  mountPath: /tmp
+                - name: datastore-credentials
+                  mountPath: /var/run/secrets/datastore
+                  readOnly: true
+              envFrom:
+                - configMapRef:
+                    name: datastore-config-v1
+              env:
+                - name: COLLECTOR_REQUIRE_DATABASE
+                  value: "true"
+                - name: DATABASE_USERNAME_FILE
+                  value: /var/run/secrets/datastore/username
+                - name: DATABASE_PASSWORD_FILE
+                  value: /var/run/secrets/datastore/password
+                - name: DATABASE_CA_FILE
+                  value: /var/run/secrets/datastore/ca.crt
+                - name: COLLECTOR_RUN_ID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: "metadata.labels['batch.kubernetes.io/job-name']"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+          volumes:
+            - name: runtime-tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 8Mi
+            - name: datastore-credentials
+              secret:
+                secretName: collector-datastore-credentials-v1
+                defaultMode: 0440

@@ -1,0 +1,8 @@
+# Dockerfile-specific deny-by-default root-context allowlist.
+**
+!api/
+!api/main.py
+!datastore/
+!datastore/__init__.py
+!datastore/postgres.py
+!datastore/requirements.lock

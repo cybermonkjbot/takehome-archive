@@ -1,0 +1,12 @@
+# Production HA PostgreSQL client configuration.
+database: demo
+host: postgres-cluster-rw.demo.svc.cluster.local
+port: 5432
+tls:
+  mode: verify-full
+  rootCertificateFile: /var/run/secrets/datastore/ca.crt
+credentials:
+  usernameFile: /var/run/secrets/datastore/username
+  passwordFile: /var/run/secrets/datastore/password
+# Idempotent collection contract: credentials delivered via ExternalSecret/SecretStore CSI.
+# No plaintext or base64 passwords committed to source.

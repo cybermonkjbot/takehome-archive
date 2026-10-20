@@ -1,0 +1,78 @@
+# HISTORICAL SCAFFOLD ONLY. Excluded from all Kustomize resources.
+# Single-instance PostgreSQL has no replication, fencing, backup, or failover.
+# Do not apply this file. Select the HA platform described in docs/security-review.md.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: datastore-config
+data:
+  POSTGRES_DB: demo
+  POSTGRES_USER: demo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: datastore
+  labels:
+    app.kubernetes.io/name: datastore
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: datastore
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: datastore
+  labels:
+    app.kubernetes.io/name: datastore
+spec:
+  serviceName: datastore
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: datastore
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: datastore
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: datastore-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: datastore-credentials
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

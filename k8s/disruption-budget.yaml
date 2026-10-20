@@ -1,0 +1,41 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-app
+spec:
+  # Preserve two serving replicas during voluntary evictions. This does not
+  # prevent involuntary failure or replace three-zone capacity planning.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web-app
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: snapshot-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: snapshot-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: log-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: log-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: log-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: log-api

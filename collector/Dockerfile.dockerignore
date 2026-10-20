@@ -1,0 +1,8 @@
+# The collector also builds from the monorepo root.
+**
+!collector/
+!collector/main.py
+!datastore/
+!datastore/__init__.py
+!datastore/postgres.py
+!datastore/requirements.lock

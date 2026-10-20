@@ -1,0 +1,75 @@
+# Provider integration contract; not deployed by the workload base.
+# Choose an HA datastore and namespace-scoped SecretStore before enabling.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: datastore-config-v1
+  namespace: demo
+immutable: true
+data:
+  DATABASE_HOST: postgres-cluster-rw.demo.svc.cluster.local
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: demo
+  DATABASE_SSLMODE: verify-full
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: api-datastore-credentials-v1
+  namespace: demo
+spec:
+  # Rotation creates a new versioned target and rolls consumers. In-place
+  # periodic refresh would conflict with an immutable Secret.
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: api-datastore-credentials-v1
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+  data:
+    - secretKey: username
+      remoteRef:
+        key: local-stack/datastore/api-reader/v1
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: local-stack/datastore/api-reader/v1
+        property: password
+    - secretKey: ca.crt
+      remoteRef:
+        key: local-stack/datastore/api-reader/v1
+        property: ca.crt
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: collector-datastore-credentials-v1
+  namespace: demo
+spec:
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: collector-datastore-credentials-v1
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+  data:
+    - secretKey: username
+      remoteRef:
+        key: local-stack/datastore/collector-writer/v1
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: local-stack/datastore/collector-writer/v1
+        property: password
+    - secretKey: ca.crt
+      remoteRef:
+        key: local-stack/datastore/collector-writer/v1
+        property: ca.crt
+# No secret is mounted into the static UI. Add CNI-specific DNS and exact
+# database egress rules to the selected deployment overlay before enabling Jobs.

@@ -1,0 +1,22 @@
+# Default deny. Only named source files enter a build context.
+**
+!package.json
+!bun.lock
+!app/
+!app/package.json
+!app/index.html
+!app/nginx.conf
+!app/vite.config.js
+!app/src/
+!app/src/main.js
+!app/src/style.css
+!collector/
+!collector/main.py
+!api/
+!api/main.py
+!log-api/
+!log-api/main.py
+!datastore/
+!datastore/__init__.py
+!datastore/postgres.py
+!datastore/requirements.lock
