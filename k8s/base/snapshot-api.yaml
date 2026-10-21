@@ -64,8 +64,8 @@ spec:
             capabilities:
               drop: ["ALL"]
           ports:
-            - name: http
-              containerPort: 8080
+            - name: https
+              containerPort: 8443
           envFrom:
             - configMapRef:
                 name: datastore-config-v1
@@ -80,24 +80,34 @@ spec:
               value: /var/run/secrets/datastore/ca.crt
             - name: LOG_API_TOKEN_FILE
               value: /var/run/secrets/log-access/token
+            # TLS protects the bearer header on the web-to-API network hop.
+            - name: TLS_CERT_FILE
+              value: /var/run/secrets/api-tls/tls.crt
+            - name: TLS_KEY_FILE
+              value: /var/run/secrets/api-tls/tls.key
+            - name: PORT
+              value: "8443"
           startupProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: https
+              scheme: HTTPS
             periodSeconds: 2
             timeoutSeconds: 1
             failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /readyz
-              port: http
+              port: https
+              scheme: HTTPS
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 2
           livenessProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: https
+              scheme: HTTPS
             periodSeconds: 10
             timeoutSeconds: 1
             failureThreshold: 3
@@ -113,6 +123,9 @@ spec:
             - name: log-access
               mountPath: /var/run/secrets/log-access
               readOnly: true
+            - name: api-tls
+              mountPath: /var/run/secrets/api-tls
+              readOnly: true
           resources:
             requests:
               cpu: 200m
@@ -123,7 +136,7 @@ spec:
       volumes:
         - name: datastore-credentials
           secret:
-            secretName: api-datastore-credentials-v1
+            secretName: api-datastore-credentials-v2
             defaultMode: 0440
         - name: log-access
           secret:
@@ -132,6 +145,11 @@ spec:
             items:
               - key: token
                 path: token
+        # Secret volumes are memory-backed and read-only inside the container.
+        - name: api-tls
+          secret:
+            secretName: api-tls-v2
+            defaultMode: 0440
 ---
 apiVersion: v1
 kind: Service
@@ -144,6 +162,6 @@ spec:
   selector:
     app.kubernetes.io/name: snapshot-api
   ports:
-    - name: http
-      port: 80
-      targetPort: http
+    - name: https
+      port: 443
+      targetPort: https

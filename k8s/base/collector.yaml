@@ -97,5 +97,5 @@ spec:
                 sizeLimit: 8Mi
             - name: datastore-credentials
               secret:
-                secretName: collector-datastore-credentials-v1
+                secretName: collector-datastore-credentials-v2
                 defaultMode: 0440

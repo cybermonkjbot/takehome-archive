@@ -75,7 +75,7 @@ spec:
       database: demo
       owner: demo
       secret:
-        name: datastore-credentials-v1
+        name: datastore-credentials-v2
 
   # Secrets must contain usernames matching the managed role names and
   # versioned passwords. Grants remain in the approved schema migration.
@@ -88,7 +88,7 @@ spec:
         createdb: false
         createrole: false
         passwordSecret:
-          name: api-datastore-credentials-v1
+          name: api-datastore-credentials-v2
       - name: snapshot_collector
         ensure: present
         login: true
@@ -96,7 +96,14 @@ spec:
         createdb: false
         createrole: false
         passwordSecret:
-          name: collector-datastore-credentials-v1
+          name: collector-datastore-credentials-v2
+
+  # Version the trust roots so CA rotation never mutates an immutable Secret.
+  certificates:
+    serverCASecret: postgres-cluster-server-ca-v2
+    clientCASecret: postgres-cluster-client-ca-v2
+    serverTLSSecret: postgres-cluster-server-tls-v2
+    replicationTLSSecret: postgres-cluster-replication-tls-v2
 
   # Automated health and monitoring integration
   monitoring:

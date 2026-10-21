@@ -1,0 +1,59 @@
+# Browser credentials and proxy-to-API requests use separate TLS certificates.
+# Keep certificate private keys in the configured External Secrets provider.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: web-tls-v2
+  namespace: demo
+spec:
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: web-tls-v2
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+    template:
+      type: kubernetes.io/tls
+  data:
+    - secretKey: tls.crt
+      remoteRef:
+        key: local-stack/tls/dashboard/v2
+        property: tls.crt
+    - secretKey: tls.key
+      remoteRef:
+        key: local-stack/tls/dashboard/v2
+        property: tls.key
+    - secretKey: ca.crt
+      remoteRef:
+        key: local-stack/tls/dashboard/v2
+        property: ca.crt
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: api-tls-v2
+  namespace: demo
+spec:
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: api-tls-v2
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+    template:
+      type: kubernetes.io/tls
+  data:
+    - secretKey: tls.crt
+      remoteRef:
+        key: local-stack/tls/snapshot-api/v2
+        property: tls.crt
+    - secretKey: tls.key
+      remoteRef:
+        key: local-stack/tls/snapshot-api/v2
+        property: tls.key

@@ -15,7 +15,7 @@ data:
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: datastore-credentials-v1
+  name: datastore-credentials-v2
   namespace: demo
 spec:
   # Cluster bootstrap owner credentials; username must match initdb.owner (demo).
@@ -24,7 +24,7 @@ spec:
     kind: SecretStore
     name: datastore-provider
   target:
-    name: datastore-credentials-v1
+    name: datastore-credentials-v2
     creationPolicy: Owner
     deletionPolicy: Retain
     immutable: true
@@ -36,17 +36,17 @@ spec:
   data:
     - secretKey: username
       remoteRef:
-        key: local-stack/datastore/bootstrap-owner/v1
+        key: local-stack/datastore/bootstrap-owner/v2
         property: username
     - secretKey: password
       remoteRef:
-        key: local-stack/datastore/bootstrap-owner/v1
+        key: local-stack/datastore/bootstrap-owner/v2
         property: password
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: api-datastore-credentials-v1
+  name: api-datastore-credentials-v2
   namespace: demo
 spec:
   # Read-only database user credentials for the snapshot API.
@@ -55,7 +55,7 @@ spec:
     kind: SecretStore
     name: datastore-provider
   target:
-    name: api-datastore-credentials-v1
+    name: api-datastore-credentials-v2
     creationPolicy: Owner
     deletionPolicy: Retain
     immutable: true
@@ -67,21 +67,21 @@ spec:
   data:
     - secretKey: username
       remoteRef:
-        key: local-stack/datastore/api-reader/v1
+        key: local-stack/datastore/api-reader/v2
         property: username
     - secretKey: password
       remoteRef:
-        key: local-stack/datastore/api-reader/v1
+        key: local-stack/datastore/api-reader/v2
         property: password
     - secretKey: ca.crt
       remoteRef:
-        key: local-stack/datastore/api-reader/v1
+        key: local-stack/datastore/api-reader/v2
         property: ca.crt
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
-  name: collector-datastore-credentials-v1
+  name: collector-datastore-credentials-v2
   namespace: demo
 spec:
   # Dedicated write/insert credentials for the collector CronJob.
@@ -90,7 +90,7 @@ spec:
     kind: SecretStore
     name: datastore-provider
   target:
-    name: collector-datastore-credentials-v1
+    name: collector-datastore-credentials-v2
     creationPolicy: Owner
     deletionPolicy: Retain
     immutable: true
@@ -102,13 +102,117 @@ spec:
   data:
     - secretKey: username
       remoteRef:
-        key: local-stack/datastore/collector-writer/v1
+        key: local-stack/datastore/collector-writer/v2
         property: username
     - secretKey: password
       remoteRef:
-        key: local-stack/datastore/collector-writer/v1
+        key: local-stack/datastore/collector-writer/v2
         property: password
     - secretKey: ca.crt
       remoteRef:
-        key: local-stack/datastore/collector-writer/v1
+        key: local-stack/datastore/collector-writer/v2
         property: ca.crt
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-cluster-server-ca-v2
+  namespace: demo
+spec:
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: postgres-cluster-server-ca-v2
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+  data:
+    - secretKey: ca.crt
+      remoteRef:
+        key: local-stack/datastore/server-ca/v2
+        property: ca.crt
+    - secretKey: ca.key
+      remoteRef:
+        key: local-stack/datastore/server-ca/v2
+        property: ca.key
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-cluster-client-ca-v2
+  namespace: demo
+spec:
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: postgres-cluster-client-ca-v2
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+  data:
+    - secretKey: ca.crt
+      remoteRef:
+        key: local-stack/datastore/client-ca/v2
+        property: ca.crt
+    - secretKey: ca.key
+      remoteRef:
+        key: local-stack/datastore/client-ca/v2
+        property: ca.key
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-cluster-server-tls-v2
+  namespace: demo
+spec:
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: postgres-cluster-server-tls-v2
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+    template:
+      type: kubernetes.io/tls
+  data:
+    - secretKey: tls.crt
+      remoteRef:
+        key: local-stack/datastore/server-tls/v2
+        property: tls.crt
+    - secretKey: tls.key
+      remoteRef:
+        key: local-stack/datastore/server-tls/v2
+        property: tls.key
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-cluster-replication-tls-v2
+  namespace: demo
+spec:
+  refreshPolicy: CreatedOnce
+  secretStoreRef:
+    kind: SecretStore
+    name: datastore-provider
+  target:
+    name: postgres-cluster-replication-tls-v2
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    immutable: true
+    template:
+      type: kubernetes.io/tls
+  data:
+    - secretKey: tls.crt
+      remoteRef:
+        key: local-stack/datastore/replication-tls/v2
+        property: tls.crt
+    - secretKey: tls.key
+      remoteRef:
+        key: local-stack/datastore/replication-tls/v2
+        property: tls.key

@@ -65,26 +65,29 @@ spec:
             capabilities:
               drop: ["ALL"]
           ports:
-            - name: http
-              containerPort: 8080
+            - name: https
+              containerPort: 8443
           startupProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: https
+              scheme: HTTPS
             periodSeconds: 2
             timeoutSeconds: 1
             failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: https
+              scheme: HTTPS
             periodSeconds: 5
             timeoutSeconds: 1
             failureThreshold: 2
           livenessProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: https
+              scheme: HTTPS
             periodSeconds: 10
             timeoutSeconds: 1
             failureThreshold: 3
@@ -97,6 +100,10 @@ spec:
           volumeMounts:
             - name: runtime-tmp
               mountPath: /tmp
+            # This Secret contains the browser-facing leaf key and the API CA.
+            - name: web-tls
+              mountPath: /var/run/secrets/web-tls
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -109,6 +116,11 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 16Mi
+        # Secret volumes are memory-backed; keep the TLS private key out of the image.
+        - name: web-tls
+          secret:
+            secretName: web-tls-v2
+            defaultMode: 0440
 ---
 apiVersion: v1
 kind: Service
@@ -121,6 +133,6 @@ spec:
   selector:
     app.kubernetes.io/name: web-app
   ports:
-    - name: http
-      port: 80
-      targetPort: http
+    - name: https
+      port: 443
+      targetPort: https

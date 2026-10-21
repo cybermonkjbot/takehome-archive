@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f4f6fb" />
-    <meta name="description" content="Kubernetes system snapshots and component logs." />
-    <title>Local stack · System snapshot</title>
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Live Kubernetes status, system snapshots, and protected container logs." />
+    <title>Local stack</title>
   </head>
   <body>
     <div id="app">
@@ -18,119 +18,149 @@
                 <path d="m8.5 10.8 7.5 4.4 7.5-4.4M16 15.5V25" />
               </svg>
             </span>
-            <span class="brand-text">
-              <strong>Local stack</strong>
-            </span>
+            <span class="brand-text"><strong>Local stack</strong></span>
           </a>
+
+          <nav class="view-tabs" role="tablist" aria-label="Dashboard views">
+            <button id="overview-tab" class="view-tab" type="button" role="tab" aria-selected="false" aria-controls="overview-panel" tabindex="-1">Overview</button>
+            <button id="snapshot-tab" class="view-tab" type="button" role="tab" aria-selected="false" aria-controls="snapshot-panel" tabindex="-1">Snapshot</button>
+            <button id="logs-tab" class="view-tab" type="button" role="tab" aria-selected="true" aria-controls="logs-panel" tabindex="0">Logs</button>
+          </nav>
         </div>
       </header>
 
       <main id="top" class="page-shell">
-
-        <div class="runtime-view">
-          <section id="components" class="panel stack-panel" aria-labelledby="components-title">
+        <section id="overview-panel" class="tab-panel" role="tabpanel" aria-labelledby="overview-tab" tabindex="0" hidden>
+          <section class="view-content overview-content" aria-labelledby="overview-title">
             <div class="panel-heading">
               <div>
-                <h1 id="components-title">Live stack</h1>
-                <p class="panel-description">Pod readiness is observed live. Collector timing is configured cadence; its last success comes from the persisted sample.</p>
+                <h1 id="overview-title">System overview</h1>
+                <p class="panel-description">Live readiness across the local stack.</p>
               </div>
-              <p id="overview-status" class="data-status" role="status" aria-live="polite">Checking live pod status…</p>
+              <div class="panel-actions">
+                <p id="overview-status" class="data-status" role="status" aria-live="polite">Checking live status…</p>
+              </div>
             </div>
-            <div class="topology" aria-label="Observed service topology">
-              <div class="topology-main">
-                <article class="topology-node" data-overview-id="datastore" aria-label="PostgreSQL status">
-                  <div class="node-topline"><span class="node-kind">DATABASE</span><span class="node-state" data-state>Checking</span></div>
-                  <span class="component-icon icon-data" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3" /></svg>
-                  </span>
-                  <h2>PostgreSQL</h2>
-                  <p class="node-purpose">Persists system snapshots</p>
-                  <p class="node-count" data-count>No current observation</p>
-                  <button class="log-open" type="button" data-component="datastore" aria-label="View PostgreSQL logs">View logs <span aria-hidden="true">›</span></button>
-                </article>
 
-                <span class="topology-link" aria-label="serves data to">→</span>
+            <div id="overview-message" class="state-message" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
-                <article class="topology-node" data-overview-id="snapshot-api" aria-label="Snapshot API status">
-                  <div class="node-topline"><span class="node-kind">API</span><span class="node-state" data-state>Checking</span></div>
-                  <span class="component-icon icon-api" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M8 7 3 12l5 5M16 7l5 5-5 5M14 4l-4 16" /></svg>
-                  </span>
-                  <h2>Snapshot API</h2>
-                  <p class="node-purpose">Serves snapshots and live status</p>
-                  <p class="node-count" data-count>No current observation</p>
-                </article>
-
-                <span class="topology-link" aria-label="serves">→</span>
-
-                <article class="topology-node" data-overview-id="web-app" aria-label="Web dashboard status">
-                  <div class="node-topline"><span class="node-kind">FRONTEND</span><span class="node-state" data-state>Checking</span></div>
-                  <span class="component-icon icon-app" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 8h8M8 12h8M8 16h4" /></svg>
-                  </span>
-                  <h2>Web dashboard</h2>
-                  <p class="node-purpose">Displays persisted measurements</p>
-                  <p class="node-count" data-count>No current observation</p>
-                  <button class="log-open" type="button" data-component="web-app" aria-label="View Web dashboard logs">View logs <span aria-hidden="true">›</span></button>
-                </article>
-              </div>
-
-              <div class="collector-flow">
-                <div class="collector-connector" aria-hidden="true"><span></span><b>Writes snapshots</b></div>
-                <article class="topology-node collector-node" aria-label="Collector latest persisted sample">
-                  <div class="node-topline"><span class="node-kind">SCHEDULED JOB</span><span class="node-state node-state-sample">Sample record</span></div>
-                  <span class="component-icon icon-collector" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 10 2-4h4" /><path d="M4 5v14h16" /></svg>
-                  </span>
-                  <h2>Collector</h2>
-                  <p class="node-purpose">Configured cadence: every 4 hours</p>
-                  <div class="sample-meta" hidden>
-                    <span>Last successful sample</span>
-                    <time id="last-run" datetime="">—</time>
+            <figure class="service-map" aria-labelledby="service-map-caption">
+              <figcaption id="service-map-caption" class="sr-only">The web dashboard calls the snapshot API, which reads and writes PostgreSQL. The collector writes system measurements to PostgreSQL.</figcaption>
+              <div class="service-flow">
+                <article class="service-card" data-overview-id="web-app">
+                  <div class="service-card-top">
+                    <span class="component-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 8h8M8 12h8M8 16h4" /></svg>
+                    </span>
+                    <span class="node-state" data-state>Checking</span>
                   </div>
-                  <p id="collector-sample-empty" class="node-count">No persisted sample observed</p>
-                  <button class="log-open" type="button" data-component="collector" aria-label="View Collector logs">View logs <span aria-hidden="true">›</span></button>
+                  <h2>Web dashboard</h2>
+                  <p class="node-purpose">Shows live status and saved measurements.</p>
+                  <p class="node-count" data-count>No current observation</p>
+                </article>
+
+                <span class="topology-link" aria-hidden="true">→</span>
+
+                <article class="service-card" data-overview-id="snapshot-api">
+                  <div class="service-card-top">
+                    <span class="component-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><path d="M8 7 3 12l5 5M16 7l5 5-5 5M14 4l-4 16" /></svg>
+                    </span>
+                    <span class="node-state" data-state>Checking</span>
+                  </div>
+                  <h2>Snapshot API</h2>
+                  <p class="node-purpose">Serves measurements and stack status.</p>
+                  <p class="node-count" data-count>No current observation</p>
+                </article>
+
+                <span class="topology-link" aria-hidden="true">→</span>
+
+                <article class="service-card" data-overview-id="datastore">
+                  <div class="service-card-top">
+                    <span class="component-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3" /></svg>
+                    </span>
+                    <span class="node-state" data-state>Checking</span>
+                  </div>
+                  <h2>PostgreSQL</h2>
+                  <p class="node-purpose">Stores system measurements.</p>
+                  <p class="node-count" data-count>No current observation</p>
                 </article>
               </div>
-            </div>
+
+              <div class="collector-row">
+                <span class="collector-connector" aria-hidden="true"><span></span><b>Writes measurements</b></span>
+                <article class="service-card collector-card" aria-labelledby="collector-title">
+                  <div class="service-card-top">
+                    <span class="component-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 10 2-4h4" /><path d="M4 5v14h16" /></svg>
+                    </span>
+                    <span id="collector-sample-state" class="collector-sample-state">No sample</span>
+                  </div>
+                  <h2 id="collector-title">Collector</h2>
+                  <p class="node-purpose">Runs every four hours and saves a system report.</p>
+                  <p id="collector-sample-detail" class="node-count">No snapshot stored yet</p>
+                </article>
+              </div>
+            </figure>
           </section>
+        </section>
 
-          <section id="snapshot" class="panel stack-panel snapshot-panel" aria-labelledby="snapshot-title">
+        <section id="snapshot-panel" class="tab-panel" role="tabpanel" aria-labelledby="snapshot-tab" tabindex="0" hidden>
+          <section class="view-content snapshot-content" aria-labelledby="snapshot-title">
             <div class="panel-heading snapshot-heading">
-              <h2 id="snapshot-title">System snapshot</h2>
-              <p id="data-status" class="data-status" role="status" aria-live="polite">Loading…</p>
+              <div>
+                <h1 id="snapshot-title">Collected measurements</h1>
+                <p class="panel-description">The most recent completed collector run.</p>
+              </div>
+              <div class="panel-actions">
+                <p id="snapshot-status" class="data-status" role="status" aria-live="polite">Loading…</p>
+              </div>
             </div>
-
-            <div id="sample-message" class="state-message" role="group" aria-live="polite" aria-atomic="true"></div>
+            <div id="sample-message" class="state-message" role="status" aria-live="polite" aria-atomic="true" hidden></div>
             <dl id="snapshot-grid" class="snapshot-grid" aria-label="Collected runtime measurements" hidden></dl>
           </section>
-        </div>
+        </section>
 
+        <section id="logs-panel" class="tab-panel" role="tabpanel" aria-labelledby="logs-tab" tabindex="0">
+          <section class="view-content logs-panel" aria-labelledby="logs-title">
+            <div class="panel-heading">
+              <div>
+                <h1 id="logs-title">Container output</h1>
+                <p class="panel-description">Read the latest 100 lines from a selected component.</p>
+              </div>
+              <div class="panel-actions">
+                <button id="logs-refresh" class="secondary-btn" type="button" hidden>Refresh logs</button>
+                <button id="logs-lock" class="secondary-btn" type="button" hidden>Lock logs</button>
+              </div>
+            </div>
+
+            <div id="logs-controls" class="logs-controls" hidden>
+              <label for="log-component">Component</label>
+              <select id="log-component" name="component">
+                <option value="web-app">Web dashboard</option>
+                <option value="snapshot-api">Snapshot API</option>
+                <option value="datastore">PostgreSQL</option>
+                <option value="collector">Collector</option>
+              </select>
+              <p id="logs-meta" class="logs-meta" hidden></p>
+            </div>
+
+            <form id="logs-auth" class="logs-auth" autocomplete="off">
+              <label for="logs-token">Access secret</label>
+              <input id="logs-token" type="password" inputmode="text" minlength="64" maxlength="64" autocomplete="new-password" autocapitalize="off" spellcheck="false" required />
+              <label class="file-token-label" for="logs-token-file">Or select the local token file</label>
+              <input id="logs-token-file" type="file" accept=".token,text/plain" />
+              <p class="auth-help">Token file: <code>k8s/overlays/local/log-access-token</code>. The secret stays in this page’s memory.</p>
+              <p id="logs-auth-error" class="logs-auth-error" role="alert" hidden></p>
+              <button class="action-btn" type="submit">Unlock logs</button>
+            </form>
+
+            <div id="logs-status" class="state-message" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+            <div id="logs-output" class="logs-output" aria-live="polite" hidden></div>
+          </section>
+        </section>
       </main>
-
-      <dialog id="logs-dialog" class="logs-dialog" aria-labelledby="logs-title">
-        <div class="logs-heading">
-          <div>
-            <h2 id="logs-title">Logs</h2>
-            <p id="logs-meta" class="logs-meta"></p>
-          </div>
-          <button id="logs-close" class="icon-button" type="button" aria-label="Close logs">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
-          </button>
-        </div>
-        <button id="logs-lock" class="lock-button" type="button" hidden>Lock logs</button>
-        <form id="logs-auth" class="logs-auth" autocomplete="off">
-          <label for="logs-token">Shared log access secret</label>
-          <input id="logs-token" type="password" inputmode="text" minlength="64" maxlength="64" autocomplete="new-password" autocapitalize="off" spellcheck="false" required />
-          <label class="file-token-label" for="logs-token-file">Or choose the local token file</label>
-          <input id="logs-token-file" type="file" accept=".token,text/plain" />
-          <p>On the local Minikube setup, choose <code>k8s/overlays/local/log-access-token</code>. The secret stays in this page's memory and is sent only to the same-origin log API.</p>
-          <p id="logs-auth-error" class="logs-auth-error" role="alert" hidden></p>
-          <button class="action-btn" type="submit">Unlock and load logs</button>
-        </form>
-        <div id="logs-status" class="state-message" role="group" aria-live="polite" aria-atomic="true" hidden></div>
-        <div id="logs-output" class="logs-output" hidden></div>
-      </dialog>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

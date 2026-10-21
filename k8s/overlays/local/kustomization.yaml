@@ -10,14 +10,32 @@ resources:
 images:
   - name: registry.invalid/local-stack/web
     newName: web-app
-    newTag: 0.1.1
+    newTag: 0.1.2
   - name: registry.invalid/local-stack/api
     newName: api
-    newTag: 0.1.1
+    newTag: 0.1.2
   - name: registry.invalid/local-stack/collector
     newName: collector
     newTag: 0.1.0
 patches:
+  # Use a new immutable local certificate version for the dashboard hostname.
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: web-app
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web-app
+      spec:
+        template:
+          spec:
+            volumes:
+              - name: web-tls
+                secret:
+                  secretName: web-tls-v3
   # The local Minikube nodes have hostnames but no zone labels. Remove only
   # zone spread here; production/base manifests still require real zones.
   - target:
@@ -48,37 +66,85 @@ patches:
       group: external-secrets.io
       version: v1
       kind: ExternalSecret
-      name: datastore-credentials-v1
+      name: datastore-credentials-v2
     patch: |-
       $patch: delete
       apiVersion: external-secrets.io/v1
       kind: ExternalSecret
       metadata:
-        name: datastore-credentials-v1
+        name: datastore-credentials-v2
         namespace: demo
   - target:
       group: external-secrets.io
       version: v1
       kind: ExternalSecret
-      name: api-datastore-credentials-v1
+      name: api-datastore-credentials-v2
     patch: |-
       $patch: delete
       apiVersion: external-secrets.io/v1
       kind: ExternalSecret
       metadata:
-        name: api-datastore-credentials-v1
+        name: api-datastore-credentials-v2
         namespace: demo
   - target:
       group: external-secrets.io
       version: v1
       kind: ExternalSecret
-      name: collector-datastore-credentials-v1
+      name: collector-datastore-credentials-v2
     patch: |-
       $patch: delete
       apiVersion: external-secrets.io/v1
       kind: ExternalSecret
       metadata:
-        name: collector-datastore-credentials-v1
+        name: collector-datastore-credentials-v2
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: postgres-cluster-server-ca-v2
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: postgres-cluster-server-ca-v2
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: postgres-cluster-client-ca-v2
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: postgres-cluster-client-ca-v2
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: postgres-cluster-server-tls-v2
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: postgres-cluster-server-tls-v2
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: postgres-cluster-replication-tls-v2
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: postgres-cluster-replication-tls-v2
         namespace: demo
   - target:
       group: external-secrets.io
@@ -91,6 +157,30 @@ patches:
       kind: ExternalSecret
       metadata:
         name: api-log-access-v1
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: web-tls-v2
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: web-tls-v2
+        namespace: demo
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: api-tls-v2
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: api-tls-v2
         namespace: demo
   # The local profile has one laptop failure domain and insufficient disk for
   # a replicated 60 GiB PostgreSQL footprint; it runs one durable 2 GiB instance.

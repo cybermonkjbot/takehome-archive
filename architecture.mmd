@@ -1,0 +1,34 @@
+flowchart TB
+  browser["Reviewer browser<br/>https://takehome.localhost:8443<br/>Shared log key in page memory; trust local CA"]
+  forward["Loopback HTTPS port-forward<br/>takehome.localhost:8443 → web-app:443"]
+
+  subgraph cluster["Minikube cluster"]
+    subgraph demo["demo namespace — default deny with explicit network allowlists"]
+      websvc["web-app Service<br/>HTTPS :443"]
+      web["Web Deployment<br/>Vite UI + Nginx"]
+      apisvc["snapshot-api Service<br/>HTTPS :443"]
+      api["Snapshot API<br/>FastAPI"]
+      collector["Collector CronJob<br/>every 4 hours<br/>pod-visible system measurements"]
+      db["PostgreSQL<br/>one local instance<br/>persistent volume"]
+    end
+    kubeapi["Kubernetes API"]
+    cnpg["CloudNativePG operator"]
+  end
+
+  browser -->|"HTTPS"| forward
+  forward --> websvc
+  websvc --> web
+  web -->|"verified HTTPS /api proxy<br/>bearer key forwarded on log calls"| apisvc
+  apisvc --> api
+  api -->|"TLS; read-only latest-snapshot query"| db
+  collector -->|"TLS; idempotent snapshot write"| db
+  api -->|"scoped RBAC: pod readiness and pods/log"| kubeapi
+  cnpg -->|"manages database pod and storage"| db
+
+  classDef box fill:#ffffff,stroke:#111111,stroke-width:2px,color:#111111;
+  classDef data fill:#f1f1f1,stroke:#111111,stroke-width:2px,color:#111111;
+  class browser,forward,websvc,web,apisvc,api,collector,kubeapi,cnpg box;
+  class db data;
+
+  style cluster fill:#ffffff,stroke:#111111,stroke-width:2px,color:#111111
+  style demo fill:#fafafa,stroke:#666666,stroke-width:1.5px,color:#111111

@@ -14,7 +14,7 @@ COPY app/nginx.conf /etc/nginx/nginx.conf
 COPY --from=web-artifacts /dist/ /usr/share/nginx/html/
 
 USER 10001:10001
-EXPOSE 8080
+EXPOSE 8443
 # The Nginx master reaps workers; QUIT drains active requests.
 STOPSIGNAL SIGQUIT
 ENTRYPOINT ["nginx"]

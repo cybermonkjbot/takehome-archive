@@ -1,4 +1,4 @@
-# Dockerfile-specific deny-by-default root-context allowlist.
+# API build context allowlist: keep workstation credentials and TLS keys out.
 **
 !api/
 !api/main.py

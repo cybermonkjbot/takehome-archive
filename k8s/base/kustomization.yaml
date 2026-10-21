@@ -15,3 +15,4 @@ resources:
   - integrations/datastore-network-policy.yaml
   - integrations/cloudnative-pg-cluster.yaml
   - integrations/log-access.yaml
+  - integrations/tls.yaml

@@ -1,3 +1,5 @@
+# Implementation doc — prompts I used
+
 I used AI to perse the document initially, and break down the tasks.
 
 then i read through and understood the summary, used the pdf to refresh my memory on the requirements.
@@ -153,7 +155,7 @@ By this point we now have a functioning, hardened cloud-native demonstration sta
 - Web, snapshot API, and log API Deployments have three replicas, CPU-based HPAs up to six, topology spread, and PDBs. HPA operation requires a metrics API and adequate capacity.
 - Workload manifests set UID/GID 10001, read-only root filesystems, dropped capabilities, RuntimeDefault seccomp, and bounded memory-backed temporary mounts where needed.
 - Namespace network policy starts from default deny. Workload and datastore paths are allowlisted by port and selectors. The local Calico agents are ready, but no workload policy path has been exercised by application traffic.
-- The log API has a namespace-scoped read-only Role and bounded responses. The raw-log route returns HTTP 503 until user authentication is configured. Its egress policy still allows DNS only; the local Kubernetes API Service is `10.96.0.1:443` and its endpoint is `192.168.49.2:8443`, but pod access is not allowed or verified.
+- Earlier, raw logs returned HTTP 503 while authentication was pending. At that point, egress allowed DNS only and API-server access was not verified. The local setup changed later; I note its current state below.
 
 
 For security i had confirmed my implementations and asked the agent to generate a report of its findings on its own work, i then confirmed everything it said and we were good to go.
@@ -227,20 +229,29 @@ Minikube to run the node cluster locally and test. and i used Calico CNI
 
 
 i used CloudNative PG to manage the high availability postgresql cluster.
-and for secrets i ensured model used secretstore and externalsecret ensuring zero plaintext secrets exist.
+and i planned to use SecretStore and ExternalSecret for managed secrets. That did not remove the local credentials in my reviewer bundle; i explain that below.
 
 Other prompts used
 As the project moved beyond the initial scaffold, I used more focused prompts to work through the design decisions and review each part of the system.
-1. “Review the repository as it is now. Summarize the architecture, what is implemented, and what is still unresolved. Don’t edit any files yet, and preserve the changes I have already made.”
-2. “Help me define the local demo architecture and the production target separately. Call out the trade-offs around PostgreSQL, collection frequency, log access, secrets, and what a single-node local cluster can actually demonstrate.”
-3. “Review the collector and database design. Make sure collection is safe to retry, snapshots have a clear identity and timestamp, and database failures don’t create duplicate or misleading records.”
-4. “Review the API contract for the snapshot, health, and log endpoints. Keep health checks local to the API process, and make sure logs aren’t exposed to the browser until an authenticated identity is configured.”
-5. “Review the dashboard against the API behavior. Make it clear when data is measured, missing, stale, or unavailable, and don’t show static labels as if they represent live system health.”
-6. “Review the Kubernetes manifests against the project security requirements. Check default-deny network policies, least-privilege RBAC, service-account tokens, non-root execution, read-only filesystems, and bounded writable mounts.”
-7. “Review workload reliability and shutdown behavior. Check probes, resource requests and limits, termination grace periods, and what happens during pod or node failure. Treat the local cluster as one failure domain.”
+1. “Now that the repository has moved beyond the scaffold, map what is implemented to the take-home requirements. Summarize the architecture, identify the remaining gaps, and preserve my changes. Don’t edit files yet.”
+2. “Based on that review, compare the local demo with a production target. We need to show collected snapshots: weigh PostgreSQL against querying cluster state directly, and cover collection cadence, log access, secrets, and what single-node Minikube can demonstrate.”
+3. “With the snapshot approach established, trace one collection from the Kubernetes API through the collector into PostgreSQL. Make retries idempotent, define snapshot identity and timestamps, and explain how failures avoid duplicate or misleading data.”
+4. “Now that the data flow is clear, check the snapshot, health, and log API contracts. Keep health checks local to the API process, bound log responses, and require authentication before returning raw logs.”
+5. “Using those API contracts, check that the dashboard reports only measured data. Show when snapshots are missing, stale, or unavailable, and avoid presenting static labels as live health.”
+6. “Before deployment, review the manifests against our security requirements. Check default-deny policies and required allowlists, namespace-scoped RBAC, service-account tokens, non-root execution, read-only filesystems, and bounded writable mounts. Identify concrete gaps.”
+7. “After the manifest review, check probes, resource settings, shutdown timing, and node-failure behavior. Treat Minikube as one failure domain and state clearly which availability claims this local setup cannot support.”
 
 
 
 At the end i made a start.sh script with this prompt.
 
 "Create a start.sh script that can be used to start the application, it should by default, delete the demo namespace if it exists, then it should create it, set up the secrets using kustomize, deploy the postgres cluster, deploy the collector, deploy the web app, and then open the browser to the web app after 30 seconds delay, give user the option to skip the opening of the browser. use minikube, install dependencies with the users permission then create a cluster if it doesnt exist, then start the app, make it interactive and fun to use, use color coding and make it look good and professional. The user experiencing this might be a good engineer but probably not heavily on the infra side of things."
+
+
+## Security note for the reviewer bundle
+
+I’m bundling usable local credentials so the reviewer can run the demo: `.env`, `k8s/overlays/local/log-access-token`, `k8s/overlays/local/secrets-local.json`, and `k8s/overlays/local/secrets-local.yaml`. Anyone with the ZIP can use them. I’ll send it only to the reviewer, and these credentials should be rotated or deleted after review. They are for the demo, not production.
+
+I still have safeguards in place: a generated 256-bit log token, restricted token-file permissions, immutable read-only Kubernetes Secrets, namespace-scoped read-only log access, default-deny network policies, and HTTPS between the browser, web app, and log API. The token is shared, so anyone with it can read allowed logs and I can’t identify them individually. HTTPS protects traffic, not the credentials inside the ZIP.
+
+When I checked, the dashboard was at `https://localhost:8443`, the web and API Deployments each had three ready replicas, the overview returned HTTP 200, and a log request without the token returned HTTP 401. HTTP port 8080 was closed. The local certificate authority is not trusted by macOS yet, so the browser may show a warning. This local demo does not prove multi-node or zone-level availability.

@@ -1,22 +1,29 @@
 import './style.css';
 
-const status = document.querySelector('#data-status');
-const lastRun = document.querySelector('#last-run');
-const sampleMeta = document.querySelector('.sample-meta');
-const message = document.querySelector('#sample-message');
-const grid = document.querySelector('#snapshot-grid');
 const overviewStatus = document.querySelector('#overview-status');
-const collectorSampleEmpty = document.querySelector('#collector-sample-empty');
-const logsDialog = document.querySelector('#logs-dialog');
-const logsTitle = document.querySelector('#logs-title');
-const logsMeta = document.querySelector('#logs-meta');
-const logsStatus = document.querySelector('#logs-status');
-const logsOutput = document.querySelector('#logs-output');
-const logsAuth = document.querySelector('#logs-auth');
+const overviewMessage = document.querySelector('#overview-message');
+const snapshotStatus = document.querySelector('#snapshot-status');
+const snapshotMessage = document.querySelector('#sample-message');
+const snapshotGrid = document.querySelector('#snapshot-grid');
+const collectorSampleState = document.querySelector('#collector-sample-state');
+const collectorSampleDetail = document.querySelector('#collector-sample-detail');
+const overviewTab = document.querySelector('#overview-tab');
+const snapshotTab = document.querySelector('#snapshot-tab');
+const logsTab = document.querySelector('#logs-tab');
+const overviewPanel = document.querySelector('#overview-panel');
+const snapshotPanel = document.querySelector('#snapshot-panel');
+const logsPanel = document.querySelector('#logs-panel');
+const logsForm = document.querySelector('#logs-auth');
+const logsControls = document.querySelector('#logs-controls');
 const logsTokenInput = document.querySelector('#logs-token');
 const logsTokenFile = document.querySelector('#logs-token-file');
 const logsAuthError = document.querySelector('#logs-auth-error');
+const logsComponent = document.querySelector('#log-component');
 const logsLock = document.querySelector('#logs-lock');
+const logsRefresh = document.querySelector('#logs-refresh');
+const logsStatus = document.querySelector('#logs-status');
+const logsMeta = document.querySelector('#logs-meta');
+const logsOutput = document.querySelector('#logs-output');
 
 const integer = new Intl.NumberFormat();
 const timestamp = new Intl.DateTimeFormat(undefined, {
@@ -29,8 +36,10 @@ let snapshotRefreshTimer;
 let snapshotRefreshInFlight = false;
 let overviewRefreshTimer;
 let overviewRefreshInFlight = false;
+let hasSnapshot = false;
+let hasOverview = false;
 let logAccessToken = '';
-let selectedLogTarget;
+let logAccessVerified = false;
 
 const stateIconPaths = {
   loading: ['M20 12a8 8 0 1 1-2.34-5.66'],
@@ -58,6 +67,7 @@ function createStateIcon(type) {
 function setStateMessage(container, { type, title, description, actionLabel, onAction }) {
   container.className = `state-message state-message-${type}`;
   container.setAttribute('aria-busy', String(type === 'loading'));
+  container.hidden = false;
   container.replaceChildren();
 
   const copy = document.createElement('div');
@@ -68,7 +78,10 @@ function setStateMessage(container, { type, title, description, actionLabel, onA
   detail.textContent = description;
   copy.append(heading, detail);
 
-  container.append(createStateIcon(type), copy);
+  const content = document.createElement('div');
+  content.className = 'state-content';
+  content.append(createStateIcon(type), copy);
+  container.append(content);
 
   if (actionLabel && onAction) {
     const action = document.createElement('button');
@@ -82,7 +95,6 @@ function setStateMessage(container, { type, title, description, actionLabel, onA
     container.append(action);
   }
 }
-
 
 function formatBytes(value) {
   if (!Number.isFinite(value) || value < 0) return 'Not reported';
@@ -99,10 +111,12 @@ function formatBytes(value) {
 
 function displaySnapshot(snapshot) {
   const sampledAt = new Date(snapshot.sampled_at);
-  lastRun.textContent = Number.isNaN(sampledAt.valueOf())
-    ? 'Timestamp unavailable'
-    : timestamp.format(sampledAt);
-  lastRun.dateTime = Number.isNaN(sampledAt.valueOf()) ? '' : sampledAt.toISOString();
+  const validSampleTime = !Number.isNaN(sampledAt.valueOf());
+  const sampleLabel = validSampleTime ? timestamp.format(sampledAt) : 'time unavailable';
+  snapshotStatus.textContent = `Collected ${sampleLabel}`;
+  collectorSampleState.textContent = 'Sample saved';
+  collectorSampleState.className = 'collector-sample-state collector-sample-state-ready';
+  collectorSampleDetail.textContent = validSampleTime ? `Last report · ${sampleLabel}` : 'Latest report saved';
 
   const memory = snapshot.memory_limit_bytes == null
     ? `${formatBytes(snapshot.memory_current_bytes)} used · no cgroup limit reported`
@@ -118,7 +132,7 @@ function displaySnapshot(snapshot) {
     ['1-minute load average', snapshot.load_average_1m == null ? 'Not reported' : Number(snapshot.load_average_1m).toFixed(2)],
   ];
 
-  grid.replaceChildren(...metrics.map(([label, value]) => {
+  snapshotGrid.replaceChildren(...metrics.map(([label, value]) => {
     const item = document.createElement('div');
     item.className = 'metric';
     const term = document.createElement('dt');
@@ -128,21 +142,37 @@ function displaySnapshot(snapshot) {
     item.append(term, detail);
     return item;
   }));
-  grid.hidden = false;
-  sampleMeta.hidden = false;
-  collectorSampleEmpty.hidden = true;
-  message.hidden = true;
-  status.textContent = 'Updated';
+
+  hasSnapshot = true;
+  snapshotGrid.hidden = false;
+  snapshotStatus.hidden = false;
+  snapshotMessage.hidden = true;
+}
+
+function setCollectorEmpty() {
+  hasSnapshot = false;
+  snapshotStatus.hidden = true;
+  collectorSampleState.textContent = 'No sample';
+  collectorSampleState.className = 'collector-sample-state collector-sample-state-unknown';
+  collectorSampleDetail.textContent = 'No snapshot stored yet';
+  snapshotGrid.hidden = true;
 }
 
 function renderOverviewUnavailable() {
-  overviewStatus.textContent = 'Unavailable · no current observation';
+  overviewStatus.hidden = true;
   document.querySelectorAll('[data-overview-id]').forEach((node) => {
     const state = node.querySelector('[data-state]');
     const count = node.querySelector('[data-count]');
     state.textContent = 'Unknown';
     state.className = 'node-state node-state-unknown';
     count.textContent = 'No current observation';
+  });
+  setStateMessage(overviewMessage, {
+    type: 'error',
+    title: 'Live status could not be loaded',
+    description: 'The last saved snapshot is still available below. Check the API connection and try again.',
+    actionLabel: 'Try again',
+    onAction: refreshOverview,
   });
 }
 
@@ -163,18 +193,36 @@ function displayOverview(overview) {
     const stateLabels = { ready: 'Ready', degraded: 'Degraded', missing: 'Not found' };
     state.textContent = stateLabels[component.state];
     state.className = `node-state node-state-${component.state}`;
-    count.textContent = `${integer.format(component.ready_pods)} / ${integer.format(component.observed_pods)} pods ready`;
+    const ready = integer.format(component.ready_pods);
+    const observed = integer.format(component.observed_pods);
+    count.textContent = `${ready} of ${observed} pods ready`;
   });
 
   const checkedAt = new Date(overview.checked_at);
   overviewStatus.textContent = Number.isNaN(checkedAt.valueOf())
-    ? 'Live · checked just now'
-    : `Live · checked ${timestamp.format(checkedAt)}`;
+    ? 'Live status checked'
+    : `Checked ${timestamp.format(checkedAt)}`;
+  overviewStatus.hidden = false;
+  hasOverview = components.length > 0;
+  overviewMessage.hidden = true;
 }
 
 async function refreshOverview() {
   if (overviewRefreshInFlight) return;
   overviewRefreshInFlight = true;
+  if (!hasOverview) {
+    overviewStatus.hidden = true;
+    setStateMessage(overviewMessage, {
+      type: 'loading',
+      title: 'Checking the stack',
+      description: 'Reading current pod readiness from Kubernetes.',
+    });
+  } else {
+    overviewMessage.hidden = true;
+    overviewStatus.hidden = false;
+    overviewStatus.textContent = 'Refreshing…';
+  }
+
   try {
     const response = await fetch('/api/v1/overview', {
       headers: { Accept: 'application/json' },
@@ -183,9 +231,24 @@ async function refreshOverview() {
       redirect: 'error',
     });
     if (!response.ok) throw new Error('overview unavailable');
-    displayOverview(await response.json());
+    const overview = await response.json();
+    if (!Array.isArray(overview.components) || overview.components.length === 0) {
+      throw new Error('overview has no component data');
+    }
+    displayOverview(overview);
   } catch {
-    renderOverviewUnavailable();
+    if (hasOverview) {
+      overviewStatus.hidden = true;
+      setStateMessage(overviewMessage, {
+        type: 'warning',
+        title: 'Could not refresh live status',
+        description: 'The previous observation remains visible. Check the API connection and try again.',
+        actionLabel: 'Try again',
+        onAction: refreshOverview,
+      });
+    } else {
+      renderOverviewUnavailable();
+    }
   } finally {
     overviewRefreshInFlight = false;
     window.clearTimeout(overviewRefreshTimer);
@@ -197,14 +260,17 @@ async function refreshSnapshot() {
   if (snapshotRefreshInFlight) return;
   snapshotRefreshInFlight = true;
 
-  if (grid.hidden) {
-    status.textContent = 'Connecting';
-    message.hidden = false;
-    setStateMessage(message, {
+  if (!hasSnapshot) {
+    snapshotStatus.hidden = true;
+    setStateMessage(snapshotMessage, {
       type: 'loading',
-      title: 'Loading system snapshot',
-      description: 'Checking for the latest collector report.',
+      title: 'Loading the latest snapshot',
+      description: 'Checking for a completed collector report.',
     });
+  } else {
+    snapshotMessage.hidden = true;
+    snapshotStatus.hidden = false;
+    snapshotStatus.textContent = 'Refreshing…';
   }
 
   try {
@@ -212,41 +278,33 @@ async function refreshSnapshot() {
       headers: { Accept: 'application/json' },
       cache: 'no-store',
       credentials: 'same-origin',
+      redirect: 'error',
     });
     if (!response.ok) throw new Error('snapshot unavailable');
     const result = await response.json();
     if (result.snapshot) {
       displaySnapshot(result.snapshot);
     } else {
-      lastRun.textContent = '—';
-      lastRun.dateTime = '';
-      grid.hidden = true;
-      sampleMeta.hidden = true;
-      collectorSampleEmpty.hidden = false;
-      message.hidden = false;
-      setStateMessage(message, {
+      setCollectorEmpty();
+      setStateMessage(snapshotMessage, {
         type: 'empty',
-        title: 'No snapshot yet',
-        description: 'The collector has not saved a system report.',
+        title: 'No snapshot has been saved',
+        description: 'The first completed collector run will add its measurements here. Start the local stack to run one now.',
         actionLabel: 'Check again',
         onAction: refreshSnapshot,
       });
-      status.textContent = 'No sample';
     }
   } catch {
-    status.textContent = 'Unavailable';
-    if (grid.hidden) {
-      message.hidden = false;
-      setStateMessage(message, {
-        type: 'error',
-        title: 'Snapshot unavailable',
-        description: 'The latest system snapshot could not be loaded.',
-        actionLabel: 'Try again',
-        onAction: refreshSnapshot,
-      });
-    } else {
-      status.textContent = 'Update failed';
-    }
+    snapshotStatus.hidden = true;
+    setStateMessage(snapshotMessage, {
+      type: hasSnapshot ? 'warning' : 'error',
+      title: hasSnapshot ? 'Could not refresh the snapshot' : 'Snapshot could not be loaded',
+      description: hasSnapshot
+        ? 'The saved measurements remain visible. Check the API connection and try again.'
+        : 'Check that the API is running, then try again.',
+      actionLabel: 'Try again',
+      onAction: refreshSnapshot,
+    });
   } finally {
     snapshotRefreshInFlight = false;
     window.clearTimeout(snapshotRefreshTimer);
@@ -254,6 +312,38 @@ async function refreshSnapshot() {
   }
 }
 
+function setActiveTab(selectedTab, shouldFocus = false) {
+  const tabs = [overviewTab, snapshotTab, logsTab];
+  const panels = [overviewPanel, snapshotPanel, logsPanel];
+  tabs.forEach((tab, index) => {
+    const selected = tab === selectedTab;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    panels[index].hidden = !selected;
+  });
+  if (selectedTab === snapshotTab) refreshSnapshot();
+  if (shouldFocus) selectedTab.focus();
+}
+
+function handleTabKeydown(event) {
+  const tabs = [overviewTab, snapshotTab, logsTab];
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  let nextIndex;
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+  else if (event.key === 'ArrowLeft') nextIndex = (currentIndex + tabs.length - 1) % tabs.length;
+  else if (event.key === 'Home') nextIndex = 0;
+  else if (event.key === 'End') nextIndex = tabs.length - 1;
+  else return;
+  event.preventDefault();
+  setActiveTab(tabs[nextIndex], true);
+}
+
+overviewTab.addEventListener('click', () => setActiveTab(overviewTab));
+snapshotTab.addEventListener('click', () => setActiveTab(snapshotTab));
+logsTab.addEventListener('click', () => setActiveTab(logsTab));
+overviewTab.addEventListener('keydown', handleTabKeydown);
+snapshotTab.addEventListener('keydown', handleTabKeydown);
+logsTab.addEventListener('keydown', handleTabKeydown);
 
 function appendPodLogs(pod) {
   const section = document.createElement('section');
@@ -265,6 +355,7 @@ function appendPodLogs(pod) {
   if (pod.error) {
     const output = document.createElement('pre');
     output.textContent = typeof pod.error === 'string' ? pod.error : 'Log unavailable.';
+    output.className = 'pod-error';
     section.append(output);
     return section;
   }
@@ -283,33 +374,31 @@ function appendPodLogs(pod) {
   return section;
 }
 
-async function openLogs(component, label) {
-  selectedLogTarget = { component, label };
-  activeLogsRequest?.abort();
-  logsTitle.textContent = `${label} logs`;
-  logsMeta.textContent = 'Last 100 lines';
-  logsOutput.replaceChildren();
-  logsOutput.hidden = true;
-  logsStatus.hidden = true;
-  if (!logsDialog.open) logsDialog.showModal();
-
+async function loadLogs() {
   if (!logAccessToken) {
-    showLogAccessForm();
+    logsTokenInput.focus();
     return;
   }
 
-  activeLogsRequest = new AbortController();
-  logsAuth.hidden = true;
-  logsLock.hidden = false;
+  if (!logAccessVerified) logsControls.hidden = true;
+
+  activeLogsRequest?.abort();
+  const requestController = new AbortController();
+  activeLogsRequest = requestController;
+  logsOutput.replaceChildren();
+  logsOutput.hidden = true;
+  logsMeta.hidden = true;
+  logsMeta.textContent = '';
   logsStatus.hidden = false;
+  logsRefresh.hidden = true;
+  logsRefresh.disabled = true;
   setStateMessage(logsStatus, {
     type: 'loading',
-    title: 'Loading logs',
-    description: 'Fetching the latest 100 lines.',
+    title: 'Fetching output',
+    description: 'Waiting for the selected component’s containers.',
   });
-
   try {
-    const response = await fetch(`/api/v1/logs/${encodeURIComponent(component)}?tail=100`, {
+    const response = await fetch(`/api/v1/logs/${encodeURIComponent(logsComponent.value)}?tail=100`, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${logAccessToken}`,
@@ -317,8 +406,10 @@ async function openLogs(component, label) {
       cache: 'no-store',
       credentials: 'same-origin',
       redirect: 'error',
-      signal: activeLogsRequest.signal,
+      signal: requestController.signal,
     });
+    if (activeLogsRequest !== requestController) return;
+
     if (response.status === 503) {
       let errorCode;
       try {
@@ -326,73 +417,92 @@ async function openLogs(component, label) {
       } catch {
         errorCode = undefined;
       }
+      if (activeLogsRequest !== requestController) return;
       setStateMessage(logsStatus, {
         type: 'error',
-        title: errorCode === 'log_authentication_unavailable' ? 'Log access is not configured' : 'Logs unavailable',
+        title: errorCode === 'log_authentication_unavailable' ? 'Log access is not configured' : 'Logs are unavailable',
         description: errorCode === 'log_authentication_unavailable'
-          ? 'The API does not have its log access Secret. Reinstall the local stack to restore it.'
-          : 'The log service is unavailable or cannot reach the Kubernetes API.',
+          ? 'The API does not have its log access Secret. Run the local startup script to restore it.'
+          : 'The API could not read logs from Kubernetes. Check the API and cluster, then retry.',
+        actionLabel: 'Try again',
+        onAction: loadLogs,
       });
       return;
     }
     if (response.status === 401) {
-      logAccessToken = '';
-      showLogAccessForm('The shared secret was rejected. Check it and try again.');
+      showLogAccessForm('That secret was rejected. Check the token file and try again.');
       return;
     }
     if (!response.ok) throw new Error('logs unavailable');
+
+    logAccessVerified = true;
+    logsControls.hidden = false;
     const result = await response.json();
+    if (activeLogsRequest !== requestController) return;
     const pods = Array.isArray(result.pods) ? result.pods : [];
     if (!pods.length) {
       setStateMessage(logsStatus, {
         type: 'empty',
-        title: 'No component pods found',
-        description: 'No pods are currently reporting for this component.',
-        actionLabel: 'Check again',
-        onAction: () => openLogs(component, label),
+        title: 'No component containers found',
+        description: 'There are no current pods for this component. Once it is running, load logs again.',
+        actionLabel: 'Try again',
+        onAction: loadLogs,
       });
       return;
     }
 
     logsOutput.replaceChildren(...pods.map(appendPodLogs));
     logsOutput.hidden = false;
-    logsStatus.hidden = true;
-    if (pods.some((pod) => pod.error)) {
-      logsStatus.hidden = false;
+    const failedPods = pods.filter((pod) => pod.error).length;
+    logsMeta.textContent = `${integer.format(pods.length)} ${pods.length === 1 ? 'container' : 'containers'} · last 100 lines${result.truncated ? ' · output truncated' : ''}`;
+    logsMeta.hidden = false;
+    if (failedPods > 0) {
       setStateMessage(logsStatus, {
         type: 'warning',
-        title: 'Some logs unavailable',
-        description: 'One or more containers returned an error.',
+        title: 'Some container logs could not be read',
+        description: `${integer.format(failedPods)} of ${integer.format(pods.length)} containers returned an error. Available output is shown below.`,
         actionLabel: 'Try again',
-        onAction: () => openLogs(component, label),
+        onAction: loadLogs,
       });
+    } else {
+      logsRefresh.hidden = false;
+      logsStatus.hidden = true;
     }
-    if (result.truncated) logsMeta.textContent = 'Last 100 lines · output truncated';
   } catch (error) {
-    if (error.name === 'AbortError') return;
+    if (error.name === 'AbortError' || activeLogsRequest !== requestController) return;
     setStateMessage(logsStatus, {
       type: 'error',
-      title: 'Logs unavailable',
-      description: 'The latest component logs could not be loaded.',
+      title: 'Could not load container logs',
+      description: 'Check the API connection and cluster access, then try again.',
       actionLabel: 'Try again',
-      onAction: () => openLogs(component, label),
+      onAction: loadLogs,
     });
+  } finally {
+    if (activeLogsRequest === requestController) {
+      activeLogsRequest = undefined;
+      logsRefresh.disabled = false;
+    }
   }
 }
 
 function showLogAccessForm(errorMessage = '') {
   activeLogsRequest?.abort();
   activeLogsRequest = undefined;
-  logsAuth.hidden = false;
+  logAccessToken = '';
+  logAccessVerified = false;
+  logsControls.hidden = true;
+  logsForm.hidden = false;
   logsLock.hidden = true;
-  logsStatus.hidden = true;
+  logsRefresh.hidden = true;
+  logsRefresh.disabled = false;
   logsOutput.replaceChildren();
   logsOutput.hidden = true;
+  logsMeta.hidden = true;
   logsTokenInput.value = '';
   logsTokenFile.value = '';
   logsAuthError.textContent = errorMessage;
   logsAuthError.hidden = !errorMessage;
-  window.requestAnimationFrame(() => logsTokenInput.focus());
+  logsStatus.hidden = true;
 }
 
 function reportAuthInputError(messageText) {
@@ -403,38 +513,31 @@ function reportAuthInputError(messageText) {
 async function acceptLogAccessToken(candidate) {
   const token = candidate.trim();
   if (!/^[0-9a-f]{64}$/.test(token)) {
-    reportAuthInputError('Enter the 64-character token from the configured secret.');
+    reportAuthInputError('Enter the 64-character token from the local setup.');
     return;
   }
   logAccessToken = token;
   logsTokenInput.value = '';
   logsTokenFile.value = '';
   logsAuthError.hidden = true;
-  if (selectedLogTarget) {
-    await openLogs(selectedLogTarget.component, selectedLogTarget.label);
-  }
+  logsForm.hidden = true;
+  logsLock.hidden = false;
+  logsRefresh.hidden = true;
+  await loadLogs();
 }
 
-document.querySelectorAll('[data-component]').forEach((button) => {
-  button.addEventListener('click', () => {
-    const label = button.closest('.topology-node').querySelector('h2').textContent;
-    openLogs(button.dataset.component, label);
-  });
-});
-
-logsAuth?.addEventListener('submit', async (event) => {
+logsForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const candidate = logsTokenInput.value;
   logsTokenInput.value = '';
   await acceptLogAccessToken(candidate);
 });
 
-logsTokenFile?.addEventListener('change', async () => {
+logsTokenFile.addEventListener('change', async () => {
   const file = logsTokenFile.files?.[0];
   if (!file) return;
   try {
-    const candidate = await file.text();
-    await acceptLogAccessToken(candidate);
+    await acceptLogAccessToken(await file.text());
   } catch {
     reportAuthInputError('The selected token file could not be read.');
   } finally {
@@ -442,17 +545,12 @@ logsTokenFile?.addEventListener('change', async () => {
   }
 });
 
-logsLock?.addEventListener('click', () => {
-  logAccessToken = '';
-  showLogAccessForm();
+logsComponent.addEventListener('change', () => {
+  if (logAccessVerified && logAccessToken) loadLogs();
 });
-
-document.querySelector('#logs-close')?.addEventListener('click', () => logsDialog.close());
-logsDialog?.addEventListener('close', () => {
-  activeLogsRequest?.abort();
-  activeLogsRequest = undefined;
-  logsOutput.replaceChildren();
-  logsOutput.hidden = true;
+logsRefresh.addEventListener('click', loadLogs);
+logsLock.addEventListener('click', () => {
+  showLogAccessForm();
 });
 
 window.addEventListener('pagehide', () => {
@@ -462,6 +560,5 @@ window.addEventListener('pagehide', () => {
   logsOutput.replaceChildren();
 });
 
-// I completed the assignment.
 refreshSnapshot();
 refreshOverview();

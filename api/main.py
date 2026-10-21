@@ -467,12 +467,19 @@ def main() -> None:
         raise SystemExit(2)
 
     logger.info("Starting Unified FastAPI service on %s:%d", host, port)
+    tls_certfile = os.environ.get("TLS_CERT_FILE")
+    tls_keyfile = os.environ.get("TLS_KEY_FILE")
+    if not tls_certfile or not tls_keyfile:
+        print("TLS_CERT_FILE and TLS_KEY_FILE are required; the API must use HTTPS.", file=sys.stderr)
+        raise SystemExit(2)
     uvicorn.run(
         app,
         host=host,
         port=port,
         log_level="info",
         access_log=True,
+        ssl_certfile=tls_certfile,
+        ssl_keyfile=tls_keyfile,
     )
 
 
